@@ -294,28 +294,32 @@ final class CameraModel: NSObject, ObservableObject {
             return photo.fileDataRepresentation()
         }
 
-        var depthType: NSString?
-        let depthAuxiliaryInfo = photo.depthData.flatMap { depth in
-            guard let originalInfo = depth.dictionaryRepresentation(forAuxiliaryDataType: &depthType),
-                  let depthType else { return nil }
-            return croppedAuxiliaryInfo(
-                from: originalInfo,
-                auxiliaryType: depthType,
-                map: depth.depthDataMap,
-                normalizedRect: normalizedCrop
-            )
+        var depthAuxiliaryInfo: (CFString, CFDictionary)?
+        if let depth = photo.depthData {
+            var depthType: NSString?
+            if let originalInfo = depth.dictionaryRepresentation(forAuxiliaryDataType: &depthType),
+               let depthType {
+                depthAuxiliaryInfo = croppedAuxiliaryInfo(
+                    from: originalInfo,
+                    auxiliaryType: depthType,
+                    map: depth.depthDataMap,
+                    normalizedRect: normalizedCrop
+                )
+            }
         }
 
-        var matteType: NSString?
-        let matteAuxiliaryInfo = photo.portraitEffectsMatte.flatMap { matte in
-            guard let originalInfo = matte.dictionaryRepresentation(forAuxiliaryDataType: &matteType),
-                  let matteType else { return nil }
-            return croppedAuxiliaryInfo(
-                from: originalInfo,
-                auxiliaryType: matteType,
-                map: matte.mattingImage,
-                normalizedRect: normalizedCrop
-            )
+        var matteAuxiliaryInfo: (CFString, CFDictionary)?
+        if let matte = photo.portraitEffectsMatte {
+            var matteType: NSString?
+            if let originalInfo = matte.dictionaryRepresentation(forAuxiliaryDataType: &matteType),
+               let matteType {
+                matteAuxiliaryInfo = croppedAuxiliaryInfo(
+                    from: originalInfo,
+                    auxiliaryType: matteType,
+                    map: matte.mattingImage,
+                    normalizedRect: normalizedCrop
+                )
+            }
         }
 
         guard let croppedData = packageImage(
