@@ -48,7 +48,7 @@
 			children = (
 				A20000010000000000000001 /* PortraitCameraApp.swift */,
 			);
-			path = App;
+			path = PortraitCamera/App;
 			sourceTree = "<group>";
 		};
 		A40000010000000000000003 /* Camera */ = {
@@ -57,7 +57,7 @@
 				A20000010000000000000002 /* CameraModel.swift */,
 				A20000010000000000000003 /* CameraPreview.swift */,
 			);
-			path = Camera;
+			path = PortraitCamera/Camera;
 			sourceTree = "<group>";
 		};
 		A40000010000000000000004 /* UI */ = {
@@ -65,7 +65,7 @@
 			children = (
 				A20000010000000000000004 /* ContentView.swift */,
 			);
-			path = UI;
+			path = PortraitCamera/UI;
 			sourceTree = "<group>";
 		};
 		A40000010000000000000005 /* Products */ = {
