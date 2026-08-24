@@ -212,13 +212,24 @@ final class CameraModel: NSObject, ObservableObject {
     }
 
     private func restoreFocusAfterStack() {
-        guard let device = videoInput?.device,
-              let originalLensPosition = focusStackOriginalLensPosition else { return }
+        guard let device = videoInput?.device else { return }
+        let originalLensPosition = focusStackOriginalLensPosition
+
+        if let originalLensPosition,
+           device.isLockingFocusWithCustomLensPositionSupported {
+            device.setFocusModeLocked(lensPosition: originalLensPosition) { [weak self] _ in
+                self?.sessionQueue.async {
+                    self?.restoreContinuousFocusIfSupported(on: device)
+                }
+            }
+        } else {
+            restoreContinuousFocusIfSupported(on: device)
+        }
+    }
+
+    private func restoreContinuousFocusIfSupported(on device: AVCaptureDevice) {
         do {
             try device.lockForConfiguration()
-            if device.isLockingFocusWithCustomLensPositionSupported {
-                device.lensPosition = originalLensPosition
-            }
             if device.isFocusModeSupported(.continuousAutoFocus) {
                 device.focusMode = .continuousAutoFocus
             }
