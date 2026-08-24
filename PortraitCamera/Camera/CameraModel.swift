@@ -9,6 +9,7 @@ final class CameraModel: NSObject, ObservableObject {
     @Published private(set) var isRunning = false
     @Published private(set) var isCapturing = false
     @Published private(set) var zoomFactor: CGFloat = 1.0
+    @Published private(set) var deviceZoomFactor: CGFloat = 1.0
     @Published private(set) var depthCaptureAvailable = false
     @Published private(set) var portraitMatteAvailable = false
     @Published var permissionDenied = false
@@ -17,7 +18,8 @@ final class CameraModel: NSObject, ObservableObject {
     private let sessionQueue = DispatchQueue(label: "com.privateportrait.camera.session")
     private let photoOutput = AVCapturePhotoOutput()
     private var videoInput: AVCaptureDeviceInput?
-    private var maxZoomFactor: CGFloat = 3.0
+    private var deviceMaxZoomFactor: CGFloat = 1.0
+    private let displayMaxZoomFactor: CGFloat = 3.0
     private var isSessionConfigured = false
 
     func start() {
@@ -33,7 +35,7 @@ final class CameraModel: NSObject, ObservableObject {
                 }
             }
         default:
-            permissionDenied = true
+            DispatchQueue.main.async { self.permissionDenied = true }
         }
     }
 
@@ -49,31 +51,45 @@ final class CameraModel: NSObject, ObservableObject {
     func capturePhoto() {
         guard isConfigured, !isCapturing else { return }
 
-        DispatchQueue.main.async { self.isCapturing = true }
         sessionQueue.async { [weak self] in
             guard let self else { return }
-
-            let settings: AVCapturePhotoSettings
-            if self.photoOutput.availablePhotoCodecTypes.contains(.hevc) {
-                settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.hevc])
-            } else {
-                settings = AVCapturePhotoSettings()
+            guard self.session.isRunning else {
+                self.finishCapture(with: "Camera is not ready")
+                return
+            }
+            guard self.photoOutput.captureReadiness == .ready else {
+                self.finishCapture(with: "Camera is preparing")
+                return
             }
 
-            if self.videoInput?.device.hasFlash == true {
+            DispatchQueue.main.async { self.isCapturing = true }
+
+            // Let AVFoundation choose the compatible still-image codec. A
+            // forced HEVC settings dictionary can reject auxiliary depth/matte
+            // streams on some device/OS combinations.
+            let settings = AVCapturePhotoSettings()
+
+            if self.videoInput?.device.hasFlash == true,
+               self.photoOutput.supportedFlashModes.contains(.off) {
                 settings.flashMode = .off
             }
 
             settings.photoQualityPrioritization = .quality
             settings.isHighResolutionPhotoEnabled = true
 
-            if self.photoOutput.isDepthDataDeliverySupported {
-                settings.isDepthDataDeliveryEnabled = self.photoOutput.isDepthDataDeliveryEnabled
-                settings.embedsDepthDataInPhoto = settings.isDepthDataDeliveryEnabled
+            // These flags are set only after the output has advertised support.
+            // Do not assume every codec/format supports every auxiliary stream.
+            let useDepth = self.photoOutput.isDepthDataDeliverySupported && self.photoOutput.isDepthDataDeliveryEnabled
+            if useDepth {
+                settings.isDepthDataDeliveryEnabled = true
+                settings.embedsDepthDataInPhoto = true
             }
-            if self.photoOutput.isPortraitEffectsMatteDeliverySupported {
-                settings.isPortraitEffectsMatteDeliveryEnabled = self.photoOutput.isPortraitEffectsMatteDeliveryEnabled
-                settings.embedsPortraitEffectsMatteInPhoto = settings.isPortraitEffectsMatteDeliveryEnabled
+            let usePortraitMatte = useDepth
+                && self.photoOutput.isPortraitEffectsMatteDeliverySupported
+                && self.photoOutput.isPortraitEffectsMatteDeliveryEnabled
+            if usePortraitMatte {
+                settings.isPortraitEffectsMatteDeliveryEnabled = true
+                settings.embedsPortraitEffectsMatteInPhoto = true
             }
 
             self.photoOutput.capturePhoto(with: settings, delegate: self)
@@ -81,17 +97,34 @@ final class CameraModel: NSObject, ObservableObject {
     }
 
     func setZoomFactor(_ requestedFactor: CGFloat) {
-        let clamped = min(max(requestedFactor, 1.0), maxZoomFactor)
+        let desired = min(max(requestedFactor, 1.0), displayMaxZoomFactor)
+
+        // Update the UI immediately, including on devices where AVFoundation
+        // exposes only a 1x hardware range. The preview layer supplies the
+        // remaining digital crop in that case.
+        DispatchQueue.main.async { [weak self] in
+            self?.zoomFactor = desired
+        }
+
         sessionQueue.async { [weak self] in
             guard let self, let device = self.videoInput?.device else { return }
+            let hardwareZoom = min(desired, self.deviceMaxZoomFactor)
             do {
                 try device.lockForConfiguration()
-                device.videoZoomFactor = clamped
+                if device.videoZoomFactor != hardwareZoom {
+                    device.videoZoomFactor = hardwareZoom
+                }
                 device.unlockForConfiguration()
-                DispatchQueue.main.async { self.zoomFactor = clamped }
+                DispatchQueue.main.async {
+                    self.deviceZoomFactor = hardwareZoom
+                    if desired > self.deviceMaxZoomFactor + 0.01 {
+                        self.statusMessage = "Digital framing: hardware zoom unavailable"
+                    }
+                }
             } catch {
                 DispatchQueue.main.async {
-                    self.statusMessage = "Zoom is temporarily unavailable"
+                    self.deviceZoomFactor = 1.0
+                    self.statusMessage = "Digital framing: hardware zoom unavailable"
                 }
             }
         }
@@ -137,22 +170,25 @@ final class CameraModel: NSObject, ObservableObject {
             }
 
             self.session.beginConfiguration()
+            defer { self.session.commitConfiguration() }
+
+            guard self.session.canSetSessionPreset(.photo) else {
+                DispatchQueue.main.async { self.statusMessage = "Photo capture is unavailable" }
+                return
+            }
             self.session.sessionPreset = .photo
 
             do {
-                let camera = self.makeRearCamera()
+                let camera = try self.makeRearCamera()
                 let input = try AVCaptureDeviceInput(device: camera)
-                guard self.session.canAddInput(input) else {
-                    throw CameraError.unavailable
-                }
+                guard self.session.canAddInput(input) else { throw CameraError.unavailable }
                 self.session.addInput(input)
                 self.videoInput = input
 
-                guard self.session.canAddOutput(self.photoOutput) else {
-                    throw CameraError.unavailable
-                }
+                guard self.session.canAddOutput(self.photoOutput) else { throw CameraError.unavailable }
                 self.session.addOutput(self.photoOutput)
                 self.photoOutput.maxPhotoQualityPrioritization = .quality
+
                 if self.photoOutput.isDepthDataDeliverySupported {
                     self.photoOutput.isDepthDataDeliveryEnabled = true
                 }
@@ -160,19 +196,22 @@ final class CameraModel: NSObject, ObservableObject {
                     self.photoOutput.isPortraitEffectsMatteDeliveryEnabled = true
                 }
 
-                self.depthCaptureAvailable = self.photoOutput.isDepthDataDeliveryEnabled
-                self.portraitMatteAvailable = self.photoOutput.isPortraitEffectsMatteDeliveryEnabled
-                self.maxZoomFactor = min(camera.activeFormat.videoMaxZoomFactor, 3.0)
+                let depthAvailable = self.photoOutput.isDepthDataDeliveryEnabled
+                let matteAvailable = self.photoOutput.isPortraitEffectsMatteDeliveryEnabled
+                self.deviceMaxZoomFactor = max(1.0, min(camera.activeFormat.videoMaxZoomFactor, displayMaxZoomFactor))
                 self.isSessionConfigured = true
-                self.session.commitConfiguration()
                 self.session.startRunning()
 
                 DispatchQueue.main.async {
+                    self.depthCaptureAvailable = depthAvailable
+                    self.portraitMatteAvailable = matteAvailable
                     self.isConfigured = true
                     self.isRunning = true
+                    self.deviceZoomFactor = 1.0
+                    self.zoomFactor = 1.0
                 }
             } catch {
-                self.session.commitConfiguration()
+                self.videoInput = nil
                 DispatchQueue.main.async {
                     self.statusMessage = "Camera setup failed"
                 }
@@ -180,14 +219,14 @@ final class CameraModel: NSObject, ObservableObject {
         }
     }
 
-    private func makeRearCamera() -> AVCaptureDevice {
+    private func makeRearCamera() throws -> AVCaptureDevice {
         if let dualWide = AVCaptureDevice.default(.builtInDualWideCamera, for: .video, position: .back) {
             return dualWide
         }
         if let wide = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) {
             return wide
         }
-        fatalError("No rear camera is available")
+        throw CameraError.unavailable
     }
 
     private func saveToPhotos(data: Data) {
@@ -202,7 +241,7 @@ final class CameraModel: NSObject, ObservableObject {
                     if success {
                         self.statusMessage = "Portrait saved to Photos"
                     } else {
-                        self.statusMessage = error == nil ? "Could not save photo" : "Photos permission is required"
+                        self.statusMessage = error?.localizedDescription ?? "Could not save photo"
                     }
                 }
             }
@@ -229,27 +268,34 @@ final class CameraModel: NSObject, ObservableObject {
             }
         }
     }
+
+    private func finishCapture(with message: String) {
+        DispatchQueue.main.async { [weak self] in
+            self?.isCapturing = false
+            self?.statusMessage = message
+        }
+    }
 }
 
 extension CameraModel: AVCapturePhotoCaptureDelegate {
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
         if let error {
-            DispatchQueue.main.async {
-                self.isCapturing = false
-                self.statusMessage = error.localizedDescription
-            }
+            finishCapture(with: error.localizedDescription)
             return
         }
 
         guard let data = photo.fileDataRepresentation() else {
-            DispatchQueue.main.async {
-                self.isCapturing = false
-                self.statusMessage = "Could not create the photo file"
-            }
+            finishCapture(with: "Could not create the photo file")
             return
         }
 
         saveToPhotos(data: data)
+    }
+
+    func photoOutput(_ output: AVCapturePhotoOutput, didFinishCaptureFor resolvedSettings: AVCaptureResolvedPhotoSettings, error: Error?) {
+        if let error {
+            finishCapture(with: error.localizedDescription)
+        }
     }
 }
 
