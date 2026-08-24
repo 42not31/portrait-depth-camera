@@ -177,8 +177,10 @@ final class CameraModel: NSObject, ObservableObject {
             var matteAvailable = false
 
             do {
-                // Use the physical wide-angle camera. The iPhone 13 has no
-                // rear telephoto; 2× is intentionally sensor crop/enlargement.
+                // Use the rear dual-wide virtual camera so AVFoundation can
+                // measure disparity and embed genuine depth for Photos Portrait
+                // editing. The iPhone 13 has no telephoto; 2× remains crop or
+                // virtual-device framing rather than a true telephoto lens.
                 let camera = try self.makeRearCamera()
                 let input = try AVCaptureDeviceInput(device: camera)
                 guard self.session.canAddInput(input) else { throw CameraError.unavailable }
@@ -227,8 +229,10 @@ final class CameraModel: NSObject, ObservableObject {
     }
 
     private func makeRearCamera() throws -> AVCaptureDevice {
-        if let wide = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) {
-            return wide
+        // Apple documents builtInDualWideCamera as the rear virtual device
+        // that measures disparity between wide and ultrawide cameras.
+        if let dualWide = AVCaptureDevice.default(.builtInDualWideCamera, for: .video, position: .back) {
+            return dualWide
         }
         throw CameraError.unavailable
     }
