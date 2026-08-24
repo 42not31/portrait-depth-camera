@@ -13,6 +13,7 @@ final class CameraModel: NSObject, ObservableObject {
     @Published private(set) var isCapturing = false
     @Published private(set) var zoomFactor: CGFloat = 1.0
     @Published private(set) var deviceZoomFactor: CGFloat = 1.0
+    @Published private(set) var captureMode: CaptureMode = .portrait
     @Published private(set) var depthCaptureAvailable = false
     @Published private(set) var portraitMatteAvailable = false
     @Published var permissionDenied = false
@@ -27,6 +28,7 @@ final class CameraModel: NSObject, ObservableObject {
     private var captureInFlight = false
     private var softwareZoomFactor: CGFloat = 1.0
     private var activeCaptureZoomFactor: CGFloat = 1.0
+    private var activeCaptureMode: CaptureMode = .portrait
 
     func start() {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
@@ -56,6 +58,7 @@ final class CameraModel: NSObject, ObservableObject {
 
     func capturePhoto() {
         guard isConfigured, isRunning, !isCapturing else { return }
+        let requestedMode = captureMode
 
         sessionQueue.async { [weak self] in
             guard let self else { return }
@@ -71,8 +74,9 @@ final class CameraModel: NSObject, ObservableObject {
 
             self.captureInFlight = true
             self.activeCaptureZoomFactor = self.softwareZoomFactor
+            self.activeCaptureMode = requestedMode
             DispatchQueue.main.async { self.isCapturing = true }
-            self.captureSinglePhoto(includePortraitData: true)
+            self.captureSinglePhoto(includePortraitData: requestedMode == .portrait)
         }
     }
 
@@ -110,6 +114,32 @@ final class CameraModel: NSObject, ObservableObject {
         )
     }
 
+    func setCaptureMode(_ mode: CaptureMode) {
+        sessionQueue.async { [weak self] in
+            guard let self, self.captureMode != mode else { return }
+            let portraitEnabled = mode == .portrait
+
+            self.session.beginConfiguration()
+            if self.photoOutput.isDepthDataDeliverySupported {
+                self.photoOutput.isDepthDataDeliveryEnabled = portraitEnabled
+            }
+            if portraitEnabled,
+               self.photoOutput.isDepthDataDeliveryEnabled,
+               self.photoOutput.isPortraitEffectsMatteDeliverySupported {
+                self.photoOutput.isPortraitEffectsMatteDeliveryEnabled = true
+            } else {
+                self.photoOutput.isPortraitEffectsMatteDeliveryEnabled = false
+            }
+            self.session.commitConfiguration()
+
+            DispatchQueue.main.async {
+                self.captureMode = mode
+                self.depthCaptureAvailable = self.photoOutput.isDepthDataDeliveryEnabled
+                self.portraitMatteAvailable = self.photoOutput.isPortraitEffectsMatteDeliveryEnabled
+            }
+        }
+    }
+
     func setZoomFactor(_ requestedFactor: CGFloat) {
         let desired = min(max(requestedFactor, 1.0), displayMaxZoomFactor)
 
@@ -123,7 +153,6 @@ final class CameraModel: NSObject, ObservableObject {
             DispatchQueue.main.async {
                 self.zoomFactor = desired
                 self.deviceZoomFactor = 1.0
-                self.statusMessage = desired > 1.01 ? "2× software framing" : nil
             }
         }
     }
@@ -287,13 +316,18 @@ final class CameraModel: NSObject, ObservableObject {
 
     private func softwareZoomedFileData(
         for photo: AVCapturePhoto,
-        factor: CGFloat
+        factor: CGFloat,
+        includePortraitData: Bool
     ) -> Data? {
         guard factor > 1.01 else {
-            return portraitEnabledFileData(for: photo) ?? photo.fileDataRepresentation()
+            return includePortraitData
+                ? (portraitEnabledFileData(for: photo) ?? photo.fileDataRepresentation())
+                : photo.fileDataRepresentation()
         }
         guard let primaryImage = photo.cgImageRepresentation() else {
-            return portraitEnabledFileData(for: photo) ?? photo.fileDataRepresentation()
+            return includePortraitData
+                ? (portraitEnabledFileData(for: photo) ?? photo.fileDataRepresentation())
+                : photo.fileDataRepresentation()
         }
 
         let normalizedCrop = CGRect(x: 0.25, y: 0.25, width: 0.5, height: 0.5)
@@ -305,11 +339,13 @@ final class CameraModel: NSObject, ObservableObject {
         ).integral
 
         guard let croppedImage = primaryImage.cropping(to: cropRect) else {
-            return photo.fileDataRepresentation()
+            return includePortraitData
+                ? (portraitEnabledFileData(for: photo) ?? photo.fileDataRepresentation())
+                : photo.fileDataRepresentation()
         }
 
         var depthAuxiliaryInfo: (CFString, CFDictionary)?
-        if let depth = photo.depthData {
+        if includePortraitData, let depth = photo.depthData {
             var depthType: NSString?
             if let originalInfo = depth.dictionaryRepresentation(forAuxiliaryDataType: &depthType),
                let depthType {
@@ -323,7 +359,7 @@ final class CameraModel: NSObject, ObservableObject {
         }
 
         var matteAuxiliaryInfo: (CFString, CFDictionary)?
-        if let matte = photo.portraitEffectsMatte {
+        if includePortraitData, let matte = photo.portraitEffectsMatte {
             var matteType: NSString?
             if let originalInfo = matte.dictionaryRepresentation(forAuxiliaryDataType: &matteType),
                let matteType {
@@ -336,17 +372,26 @@ final class CameraModel: NSObject, ObservableObject {
             }
         }
 
+        let croppedMetadata = croppedMetadata(
+            from: photo.metadata,
+            width: croppedImage.width,
+            height: croppedImage.height
+        )
+        let outputMetadata = includePortraitData
+            ? portraitEnabledMetadata(from: croppedMetadata)
+            : croppedMetadata
+
         guard let croppedData = packageImage(
             croppedImage,
-            metadata: portraitEnabledMetadata(
-                from: croppedMetadata(from: photo.metadata, width: croppedImage.width, height: croppedImage.height)
-            ),
+            metadata: outputMetadata,
             depthAuxiliaryInfo: depthAuxiliaryInfo,
             matteAuxiliaryInfo: matteAuxiliaryInfo
         ) else {
             // Never discard a genuine Portrait capture merely because a
             // derivative software crop could not be packaged on this OS.
-            return portraitEnabledFileData(for: photo) ?? photo.fileDataRepresentation()
+            return includePortraitData
+                ? (portraitEnabledFileData(for: photo) ?? photo.fileDataRepresentation())
+                : photo.fileDataRepresentation()
         }
         return croppedData
     }
@@ -578,7 +623,12 @@ extension CameraModel: AVCapturePhotoCaptureDelegate {
         }
 
         let zoom = activeCaptureZoomFactor
-        guard let data = softwareZoomedFileData(for: photo, factor: zoom) else {
+        let includePortraitData = activeCaptureMode == .portrait
+        guard let data = softwareZoomedFileData(
+            for: photo,
+            factor: zoom,
+            includePortraitData: includePortraitData
+        ) else {
             finishCapture(with: "Could not create the photo file")
             return
         }
