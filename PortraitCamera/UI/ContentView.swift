@@ -87,11 +87,28 @@ struct ContentView: View {
     }
 
     private func preview(in size: CGSize) -> some View {
-        CameraPreview(session: camera.session) { point, previewSize in
-            camera.focus(at: point, in: previewSize)
-            focusPoint = point
-            focusAnimationID = UUID()
-        }
+        CameraPreview(
+            session: camera.session,
+            zoomFactor: camera.zoomFactor,
+            deviceZoomFactor: camera.deviceZoomFactor,
+            onTap: { point, previewSize in
+                camera.focus(at: point, in: previewSize)
+                focusPoint = point
+                focusAnimationID = UUID()
+            },
+            onPinch: { scale, state in
+                switch state {
+                case .began:
+                    pinchStartZoom = camera.zoomFactor
+                case .changed:
+                    camera.setZoomFactor(pinchStartZoom * scale)
+                case .ended, .cancelled, .failed:
+                    pinchStartZoom = camera.zoomFactor
+                default:
+                    break
+                }
+            }
+        )
         .overlay {
             if let focusPoint {
                 FocusReticle()
@@ -103,21 +120,6 @@ struct ContentView: View {
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .padding(.horizontal, 12)
         .contentShape(Rectangle())
-        .gesture(
-            MagnificationGesture()
-                .onChanged { value in
-                    let proposed = pinchStartZoom * value
-                    camera.setZoomFactor(proposed)
-                }
-                .onEnded { _ in
-                    pinchStartZoom = camera.zoomFactor
-                }
-        )
-        .onChange(of: camera.zoomFactor) { _, newValue in
-            if pinchStartZoom == 1.0 && newValue != 1.0 {
-                pinchStartZoom = newValue
-            }
-        }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .aspectRatio(3.0 / 4.0, contentMode: .fit)
     }
