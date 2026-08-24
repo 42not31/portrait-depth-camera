@@ -3,11 +3,10 @@ import SwiftUI
 
 struct ContentView: View {
     @ObservedObject var camera: CameraModel
-    @State private var pinchStartZoom: CGFloat = 1.0
     @State private var focusPoint: CGPoint?
     @State private var focusAnimationID = UUID()
 
-    private let zoomPresets: [CGFloat] = [1.0, 2.0, 3.0]
+    private let zoomPresets: [CGFloat] = [1.0, 2.0]
 
     var body: some View {
         GeometryReader { proxy in
@@ -95,18 +94,6 @@ struct ContentView: View {
                 camera.focus(at: point, in: previewSize)
                 focusPoint = point
                 focusAnimationID = UUID()
-            },
-            onPinch: { scale, state in
-                switch state {
-                case .began:
-                    pinchStartZoom = camera.zoomFactor
-                case .changed:
-                    camera.setZoomFactor(pinchStartZoom * scale)
-                case .ended, .cancelled, .failed:
-                    pinchStartZoom = camera.zoomFactor
-                default:
-                    break
-                }
             }
         )
         .overlay {
@@ -114,7 +101,6 @@ struct ContentView: View {
                 FocusReticle()
                     .id(focusAnimationID)
                     .position(focusPoint)
-                    .transition(.scale.combined(with: .opacity))
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
@@ -129,13 +115,12 @@ struct ContentView: View {
             HStack(spacing: 10) {
                 ForEach(zoomPresets, id: \.self) { preset in
                     Button {
-                        pinchStartZoom = preset
                         camera.setZoomFactor(preset)
                     } label: {
-                        Text(preset == 1.0 ? "1×" : "\(Int(preset))×")
+                        Text(preset == 1.0 ? "1×" : "2×")
                             .font(.system(size: 14, weight: .bold, design: .rounded))
                             .foregroundStyle(abs(camera.zoomFactor - preset) < 0.08 ? .black : .white.opacity(0.82))
-                            .frame(width: 44, height: 34)
+                            .frame(width: 52, height: 36)
                             .background(
                                 abs(camera.zoomFactor - preset) < 0.08 ? Color.white : Color.white.opacity(0.1),
                                 in: Capsule()
@@ -158,7 +143,7 @@ struct ContentView: View {
                 }
             }
             .buttonStyle(.plain)
-            .disabled(camera.isCapturing || !camera.isConfigured)
+            .disabled(camera.isCapturing || !camera.isConfigured || !camera.isRunning)
             .scaleEffect(camera.isCapturing ? 0.94 : 1.0)
             .animation(.easeOut(duration: 0.16), value: camera.isCapturing)
         }
