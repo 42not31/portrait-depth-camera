@@ -294,33 +294,73 @@ final class CameraModel: NSObject, ObservableObject {
             return photo.fileDataRepresentation()
         }
 
-        let croppedDepth: AVDepthData?
-        if let depth = photo.depthData,
-           let croppedMap = cropPixelBuffer(depth.depthDataMap, normalizedRect: normalizedCrop) {
-            croppedDepth = try? depth.replacingDepthDataMap(with: croppedMap)
-        } else {
-            croppedDepth = nil
+        var depthType: NSString?
+        let depthAuxiliaryInfo = photo.depthData.flatMap { depth in
+            guard let originalInfo = depth.dictionaryRepresentation(forAuxiliaryDataType: &depthType),
+                  let depthType else { return nil }
+            return croppedAuxiliaryInfo(
+                from: originalInfo,
+                auxiliaryType: depthType,
+                map: depth.depthDataMap,
+                normalizedRect: normalizedCrop
+            )
         }
 
-        let croppedMatte: AVPortraitEffectsMatte?
-        if let matte = photo.portraitEffectsMatte,
-           let croppedMap = cropPixelBuffer(matte.mattingImage, normalizedRect: normalizedCrop) {
-            croppedMatte = try? matte.replacingPortraitEffectsMatte(with: croppedMap)
-        } else {
-            croppedMatte = nil
+        var matteType: NSString?
+        let matteAuxiliaryInfo = photo.portraitEffectsMatte.flatMap { matte in
+            guard let originalInfo = matte.dictionaryRepresentation(forAuxiliaryDataType: &matteType),
+                  let matteType else { return nil }
+            return croppedAuxiliaryInfo(
+                from: originalInfo,
+                auxiliaryType: matteType,
+                map: matte.mattingImage,
+                normalizedRect: normalizedCrop
+            )
         }
 
         guard let croppedData = packageImage(
             croppedImage,
             metadata: photo.metadata,
-            depth: croppedDepth,
-            matte: croppedMatte
+            depthAuxiliaryInfo: depthAuxiliaryInfo,
+            matteAuxiliaryInfo: matteAuxiliaryInfo
         ) else {
             // Never discard a genuine Portrait capture merely because a
             // derivative software crop could not be packaged on this OS.
             return photo.fileDataRepresentation()
         }
         return croppedData
+    }
+
+    private func croppedAuxiliaryInfo(
+        from originalInfo: [AnyHashable: Any],
+        auxiliaryType: NSString,
+        map source: CVPixelBuffer,
+        normalizedRect: CGRect
+    ) -> (CFString, CFDictionary)? {
+        guard let croppedMap = cropPixelBuffer(source, normalizedRect: normalizedRect),
+              let mapData = pixelBufferData(croppedMap) else { return nil }
+
+        let result = NSMutableDictionary(dictionary: originalInfo)
+        result.setObject(mapData as NSData, forKey: kCGImageAuxiliaryDataInfoData as NSString)
+
+        if let originalDescription = originalInfo[kCGImageAuxiliaryDataInfoDataDescription] as? [AnyHashable: Any] {
+            let description = NSMutableDictionary(dictionary: originalDescription)
+            description.setObject(CVPixelBufferGetWidth(croppedMap), forKey: kCGImagePropertyWidth as NSString)
+            description.setObject(CVPixelBufferGetHeight(croppedMap), forKey: kCGImagePropertyHeight as NSString)
+            description.setObject(CVPixelBufferGetBytesPerRow(croppedMap), forKey: kCGImagePropertyBytesPerRow as NSString)
+            description.setObject(CVPixelBufferGetPixelFormatType(croppedMap), forKey: kCGImagePropertyPixelFormat as NSString)
+            result.setObject(description, forKey: kCGImageAuxiliaryDataInfoDataDescription as NSString)
+        }
+
+        return (auxiliaryType as CFString, result as CFDictionary)
+    }
+
+    private func pixelBufferData(_ pixelBuffer: CVPixelBuffer) -> Data? {
+        guard CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly) == kCVReturnSuccess else { return nil }
+        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
+        guard let baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer) else { return nil }
+        let byteCount = CVPixelBufferGetBytesPerRow(pixelBuffer) * CVPixelBufferGetHeight(pixelBuffer)
+        return Data(bytes: baseAddress, count: byteCount)
     }
 
     private func cropPixelBuffer(_ source: CVPixelBuffer, normalizedRect: CGRect) -> CVPixelBuffer? {
@@ -360,8 +400,8 @@ final class CameraModel: NSObject, ObservableObject {
     private func packageImage(
         _ image: CGImage,
         metadata: [String: Any],
-        depth: AVDepthData?,
-        matte: AVPortraitEffectsMatte?
+        depthAuxiliaryInfo: (CFString, CFDictionary)?,
+        matteAuxiliaryInfo: (CFString, CFDictionary)?
     ) -> Data? {
         let data = NSMutableData()
         let imageType: CFString = UTType.heic.identifier as CFString
@@ -371,25 +411,19 @@ final class CameraModel: NSObject, ObservableObject {
 
         CGImageDestinationAddImage(destination, image, metadata as CFDictionary)
 
-        if let depth,
-           var auxiliaryType: NSString? = nil,
-           let auxiliaryInfo = depth.dictionaryRepresentation(forAuxiliaryDataType: &auxiliaryType),
-           let auxiliaryType {
+        if let depthAuxiliaryInfo {
             CGImageDestinationAddAuxiliaryDataInfo(
                 destination,
-                auxiliaryType as CFString,
-                auxiliaryInfo as CFDictionary
+                depthAuxiliaryInfo.0,
+                depthAuxiliaryInfo.1
             )
         }
 
-        if let matte,
-           var auxiliaryType: NSString? = nil,
-           let auxiliaryInfo = matte.dictionaryRepresentation(forAuxiliaryDataType: &auxiliaryType),
-           let auxiliaryType {
+        if let matteAuxiliaryInfo {
             CGImageDestinationAddAuxiliaryDataInfo(
                 destination,
-                auxiliaryType as CFString,
-                auxiliaryInfo as CFDictionary
+                matteAuxiliaryInfo.0,
+                matteAuxiliaryInfo.1
             )
         }
 
