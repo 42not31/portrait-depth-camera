@@ -17,6 +17,7 @@ final class CameraModel: NSObject, ObservableObject {
     @Published private(set) var captureMode: CaptureMode = .portrait
     @Published private(set) var videoOrientation: AVCaptureVideoOrientation = .portrait
     @Published private(set) var latestPhotoImage: UIImage?
+    @Published private(set) var latestPhotoAssetIdentifier: String?
     @Published private(set) var depthCaptureAvailable = false
     @Published private(set) var portraitMatteAvailable = false
     @Published var permissionDenied = false
@@ -26,7 +27,7 @@ final class CameraModel: NSObject, ObservableObject {
     private let photoOutput = AVCapturePhotoOutput()
     private let ciContext = CIContext()
     private var videoInput: AVCaptureDeviceInput?
-    private let displayMaxZoomFactor: CGFloat = 2.0
+    private let maxPhotoSoftwareZoomFactor: CGFloat = 5.0
     private var isSessionConfigured = false
     private var captureInFlight = false
     private var softwareZoomFactor: CGFloat = 1.0
@@ -158,8 +159,13 @@ final class CameraModel: NSObject, ObservableObject {
             }
             self.session.commitConfiguration()
 
+            if mode == .portrait {
+                self.softwareZoomFactor = min(self.softwareZoomFactor, 2.0)
+            }
+
             DispatchQueue.main.async {
                 self.captureMode = mode
+                self.zoomFactor = self.softwareZoomFactor
                 self.depthCaptureAvailable = self.photoOutput.isDepthDataDeliveryEnabled
                 self.portraitMatteAvailable = self.photoOutput.isPortraitEffectsMatteDeliveryEnabled
             }
@@ -167,7 +173,8 @@ final class CameraModel: NSObject, ObservableObject {
     }
 
     func setZoomFactor(_ requestedFactor: CGFloat) {
-        let desired = min(max(requestedFactor, 1.0), displayMaxZoomFactor)
+        let maximum = captureMode == .photo ? maxPhotoSoftwareZoomFactor : 2.0
+        let desired = min(max(requestedFactor, 1.0), maximum)
 
         // This is intentionally software-only. Do not set
         // AVCaptureDevice.videoZoomFactor: enabling depth on a virtual camera
@@ -323,8 +330,10 @@ final class CameraModel: NSObject, ObservableObject {
     private func saveToPhotos(data: Data, zoomFactor: CGFloat) {
         let latestThumbnail = UIImage(data: data)?.preparingThumbnail(of: CGSize(width: 320, height: 320))
         let save: () -> Void = { [weak self] in
+            var placeholderIdentifier: String?
             PHPhotoLibrary.shared().performChanges({
                 let request = PHAssetCreationRequest.forAsset()
+                placeholderIdentifier = request.placeholderForCreatedAsset?.localIdentifier
                 request.addResource(with: .photo, data: data, options: nil)
             }) { success, error in
                 DispatchQueue.main.async {
@@ -333,6 +342,7 @@ final class CameraModel: NSObject, ObservableObject {
                     self.captureInFlight = false
                     if success {
                         self.latestPhotoImage = latestThumbnail
+                        self.latestPhotoAssetIdentifier = placeholderIdentifier
                         self.statusMessage = nil
                     } else {
                         self.statusMessage = error?.localizedDescription ?? "Could not save photo"
@@ -365,6 +375,28 @@ final class CameraModel: NSObject, ObservableObject {
         }
     }
 
+    func openLatestPhotoInPhotos() {
+        guard let localIdentifier = latestPhotoAssetIdentifier,
+              let uuid = localIdentifier.split(separator: "/").first,
+              let encodedUUID = String(uuid).addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let assetURL = URL(string: "photos-navigation://asset?uuid=\(encodedUUID)") else {
+            return
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            UIApplication.shared.open(assetURL, options: [:]) { opened in
+                guard !opened,
+                      let self,
+                      let fallbackURL = URL(string: "photos-navigation://album?name=recents&revealassetuuid=\(encodedUUID)") else { return }
+                UIApplication.shared.open(fallbackURL, options: [:]) { fallbackOpened in
+                    if !fallbackOpened {
+                        self.statusMessage = "Photos could not open this photo"
+                    }
+                }
+            }
+        }
+    }
+
     private func finishCapture(with message: String) {
         sessionQueue.async { [weak self] in
             self?.captureInFlight = false
@@ -391,7 +423,14 @@ final class CameraModel: NSObject, ObservableObject {
                 : photo.fileDataRepresentation()
         }
 
-        let normalizedCrop = CGRect(x: 0.25, y: 0.25, width: 0.5, height: 0.5)
+        let cropSide = max(1.0 / factor, 0.05)
+        let cropOrigin = (1.0 - cropSide) / 2.0
+        let normalizedCrop = CGRect(
+            x: cropOrigin,
+            y: cropOrigin,
+            width: cropSide,
+            height: cropSide
+        )
         let cropRect = CGRect(
             x: CGFloat(primaryImage.width) * normalizedCrop.minX,
             y: CGFloat(primaryImage.height) * normalizedCrop.minY,

@@ -67,7 +67,7 @@ final class PreviewView: UIView {
     }
 
     func setDigitalZoom(_ factor: CGFloat) {
-        let clamped = min(max(factor, 1.0), 2.0)
+        let clamped = min(max(factor, 1.0), 5.0)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         previewLayer.setAffineTransform(CGAffineTransform(scaleX: clamped, y: clamped))
