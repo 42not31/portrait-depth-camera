@@ -3,8 +3,10 @@ import SwiftUI
 
 struct ContentView: View {
     @ObservedObject var camera: CameraModel
+    @ObservedObject var settings: CamProSettings
     @State private var focusPoint: CGPoint?
     @State private var focusAnimationID = UUID()
+    @State private var showSettings = false
 
     private let zoomPresets: [CGFloat] = [1.0, 2.0]
 
@@ -52,33 +54,46 @@ struct ContentView: View {
         .onDisappear {
             camera.stop()
         }
+        .sheet(isPresented: $showSettings) {
+            SettingsView(settings: settings)
+        }
     }
 
     private var header: some View {
         HStack {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("PORTRAIT")
+            VStack(alignment: .leading, spacing: 5) {
+                Text("CAMPRO")
                     .font(.system(size: 15, weight: .bold, design: .rounded))
                     .tracking(2.2)
                     .foregroundStyle(.white)
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(camera.depthCaptureAvailable ? Color.green : Color.orange)
-                        .frame(width: 6, height: 6)
-                    Text(camera.depthCaptureAvailable ? "DEPTH READY" : "STANDARD DEPTH")
-                        .font(.system(size: 10, weight: .semibold, design: .rounded))
-                        .tracking(1.1)
-                        .foregroundStyle(.white.opacity(0.64))
+                if settings.showDepthIndicator {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(camera.captureMode == .portrait && camera.depthCaptureAvailable ? .white : .gray)
+                            .frame(width: 6, height: 6)
+                        Text(camera.captureMode == .portrait
+                             ? (camera.depthCaptureAvailable ? "DEPTH READY" : "STANDARD DEPTH")
+                             : "SINGLE FRAME PHOTO")
+                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                            .tracking(1.1)
+                            .foregroundStyle(.white.opacity(0.64))
+                    }
                 }
             }
 
             Spacer()
 
-            Image(systemName: camera.portraitMatteAvailable ? "person.crop.square" : "camera.metering.center.weighted")
-                .font(.system(size: 17, weight: .medium))
-                .foregroundStyle(.white.opacity(0.8))
-                .padding(12)
-                .background(.white.opacity(0.1), in: Circle())
+            Button {
+                showSettings = true
+            } label: {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.88))
+                    .padding(12)
+                    .background(.white.opacity(0.1), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Settings")
         }
         .padding(.horizontal, 24)
         .padding(.top, 18)
@@ -112,6 +127,19 @@ struct ContentView: View {
 
     private var controls: some View {
         VStack(spacing: 22) {
+            Picker("Capture mode", selection: Binding(
+                get: { camera.captureMode },
+                set: { camera.setCaptureMode($0) }
+            )) {
+                ForEach(CaptureMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .tint(.white)
+            .padding(.horizontal, 34)
+            .accessibilityLabel("Capture mode")
+
             HStack(spacing: 10) {
                 ForEach(zoomPresets, id: \.self) { preset in
                     Button {
@@ -158,7 +186,7 @@ struct ContentView: View {
                 .foregroundStyle(.white)
             Text("Camera access is required")
                 .font(.system(size: 19, weight: .bold, design: .rounded))
-            Text("Enable camera access in Settings to capture Portrait photos.")
+            Text("Enable camera access in Settings to capture photos.")
                 .font(.system(size: 14, weight: .regular, design: .rounded))
                 .foregroundStyle(.white.opacity(0.7))
                 .multilineTextAlignment(.center)
@@ -175,7 +203,7 @@ private struct FocusReticle: View {
 
     var body: some View {
         RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .stroke(Color.yellow, lineWidth: 1.5)
+            .stroke(Color.white, lineWidth: 1.5)
             .frame(width: 64, height: 64)
             .opacity(visible ? 1 : 0)
             .onAppear {
