@@ -6,7 +6,7 @@ struct CameraPreview: UIViewRepresentable {
     let session: AVCaptureSession
     let zoomFactor: CGFloat
     let deviceZoomFactor: CGFloat
-    let onTap: (CGPoint, CGSize) -> Void
+    let onTap: (CGPoint, CGPoint) -> Void
 
     func makeUIView(context: Context) -> PreviewView {
         let view = PreviewView()
@@ -25,7 +25,7 @@ struct CameraPreview: UIViewRepresentable {
 
 final class PreviewView: UIView {
     private let previewLayer = AVCaptureVideoPreviewLayer()
-    var onTap: ((CGPoint, CGSize) -> Void)?
+    var onTap: ((CGPoint, CGPoint) -> Void)?
 
     var videoPreviewLayer: AVCaptureVideoPreviewLayer {
         previewLayer
@@ -67,7 +67,9 @@ final class PreviewView: UIView {
     }
 
     @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
-        let point = gesture.location(in: self)
-        onTap?(point, bounds.size)
+        let viewPoint = gesture.location(in: self)
+        let layerPoint = previewLayer.convert(viewPoint, from: layer)
+        let devicePoint = previewLayer.captureDevicePointConverted(fromLayerPoint: layerPoint)
+        onTap?(viewPoint, devicePoint)
     }
 }
