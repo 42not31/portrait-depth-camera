@@ -1,0 +1,39 @@
+workflows:
+  portrait-depth-unsigned:
+    name: Portrait Depth — unsigned device IPA
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      xcode: latest
+    scripts:
+      - name: Show Xcode version
+        script: xcodebuild -version
+      - name: Build unsigned iPhoneOS app
+        script: |
+          set -euo pipefail
+          rm -rf "$CM_BUILD_DIR/derived-data" "$CM_BUILD_DIR/build"
+          mkdir -p "$CM_BUILD_DIR/build"
+          xcodebuild build \
+            -project "PortraitCamera.xcodeproj" \
+            -scheme "PortraitCamera" \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath "$CM_BUILD_DIR/derived-data" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            DEVELOPMENT_TEAM=""
+      - name: Package unsigned IPA
+        script: |
+          set -euo pipefail
+          APP_PATH="$CM_BUILD_DIR/derived-data/Build/Products/Release-iphoneos/PortraitCamera.app"
+          test -d "$APP_PATH"
+          mkdir -p "$CM_BUILD_DIR/build/Payload"
+          cp -R "$APP_PATH" "$CM_BUILD_DIR/build/Payload/PortraitCamera.app"
+          cd "$CM_BUILD_DIR/build"
+          /usr/bin/zip -qry "PortraitCamera-unsigned.ipa" Payload
+          rm -rf Payload
+          shasum -a 256 "PortraitCamera-unsigned.ipa" > SHA256SUMS.txt
+    artifacts:
+      - build/PortraitCamera-unsigned.ipa
+      - build/SHA256SUMS.txt
