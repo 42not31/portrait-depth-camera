@@ -90,9 +90,9 @@ struct ContentView: View {
             session: camera.session,
             zoomFactor: camera.zoomFactor,
             deviceZoomFactor: camera.deviceZoomFactor,
-            onTap: { point, previewSize in
-                camera.focus(at: point, in: previewSize)
-                focusPoint = point
+            onTap: { viewPoint, devicePoint in
+                camera.focus(at: devicePoint)
+                focusPoint = viewPoint
                 focusAnimationID = UUID()
             }
         )
