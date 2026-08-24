@@ -42,11 +42,11 @@ struct SettingsView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
-                        .foregroundStyle(.white)
+                        .foregroundStyle(CamProTheme.accent)
                 }
             }
         }
-        .tint(.white)
+        .tint(CamProTheme.accent)
         .preferredColorScheme(.dark)
     }
 }

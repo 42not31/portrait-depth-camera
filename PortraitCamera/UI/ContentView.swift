@@ -1,5 +1,6 @@
 import AVFoundation
 import SwiftUI
+import UIKit
 
 struct ContentView: View {
     @ObservedObject var camera: CameraModel
@@ -7,9 +8,10 @@ struct ContentView: View {
     @State private var focusPoint: CGPoint?
     @State private var focusAnimationID = UUID()
     @State private var showSettings = false
-    @State private var showLatestPhoto = false
 
-    private let zoomPresets: [CGFloat] = [1.0, 2.0]
+    private var zoomPresets: [CGFloat] {
+        camera.captureMode == .photo ? [1.0, 2.0, 3.0, 4.0, 5.0] : [1.0, 2.0]
+    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -58,11 +60,6 @@ struct ContentView: View {
         .sheet(isPresented: $showSettings) {
             SettingsView(settings: settings)
         }
-        .sheet(isPresented: $showLatestPhoto) {
-            if let image = camera.latestPhotoImage {
-                LatestPhotoView(image: image)
-            }
-        }
     }
 
     private var header: some View {
@@ -75,7 +72,7 @@ struct ContentView: View {
                 if settings.showDepthIndicator {
                     HStack(spacing: 6) {
                         Circle()
-                            .fill(camera.captureMode == .portrait && camera.depthCaptureAvailable ? .white : .gray)
+                            .fill(camera.captureMode == .portrait && camera.depthCaptureAvailable ? CamProTheme.accent : .gray)
                             .frame(width: 6, height: 6)
                         Text(camera.captureMode == .portrait
                              ? (camera.depthCaptureAvailable ? "DEPTH READY" : "STANDARD DEPTH")
@@ -94,9 +91,9 @@ struct ContentView: View {
             } label: {
                 Image(systemName: "slider.horizontal.3")
                     .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.88))
+                    .foregroundStyle(.white.opacity(0.92))
                     .padding(12)
-                    .background(.white.opacity(0.1), in: Circle())
+                    .background(CamProTheme.accentMuted, in: Circle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Settings")
@@ -111,7 +108,9 @@ struct ContentView: View {
             session: camera.session,
             zoomFactor: camera.zoomFactor,
             deviceZoomFactor: camera.deviceZoomFactor,
-            videoOrientation: camera.videoOrientation,
+            // The interface and preview stay portrait-locked. The camera model
+            // still applies the physical device orientation to the saved output.
+            videoOrientation: .portrait,
             onTap: { viewPoint, devicePoint in
                 camera.focus(at: devicePoint)
                 focusPoint = viewPoint
@@ -143,7 +142,7 @@ struct ContentView: View {
                 }
             }
             .pickerStyle(.segmented)
-            .tint(.white)
+            .tint(CamProTheme.accent)
             .padding(.horizontal, 34)
             .accessibilityLabel("Capture mode")
 
@@ -152,12 +151,12 @@ struct ContentView: View {
                     Button {
                         camera.setZoomFactor(preset)
                     } label: {
-                        Text(preset == 1.0 ? "1×" : "2×")
+                        Text("\(preset, specifier: "%.0f")×")
                             .font(.system(size: 14, weight: .bold, design: .rounded))
-                            .foregroundStyle(abs(camera.zoomFactor - preset) < 0.08 ? .black : .white.opacity(0.82))
-                            .frame(width: 52, height: 36)
+                            .foregroundStyle(abs(camera.zoomFactor - preset) < 0.08 ? .white : .white.opacity(0.82))
+                            .frame(minWidth: 46, minHeight: 36)
                             .background(
-                                abs(camera.zoomFactor - preset) < 0.08 ? Color.white : Color.white.opacity(0.1),
+                                abs(camera.zoomFactor - preset) < 0.08 ? CamProTheme.accent : Color.white.opacity(0.1),
                                 in: Capsule()
                             )
                     }
@@ -167,7 +166,7 @@ struct ContentView: View {
 
             HStack {
                 Button {
-                    showLatestPhoto = true
+                    camera.openLatestPhotoInPhotos()
                 } label: {
                     Group {
                         if let image = camera.latestPhotoImage {
@@ -190,7 +189,7 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(camera.latestPhotoImage == nil)
-                .accessibilityLabel(camera.latestPhotoImage == nil ? "No photo captured yet" : "Open latest photo")
+                .accessibilityLabel(camera.latestPhotoImage == nil ? "No photo captured yet" : "Open latest photo in Photos")
 
                 Spacer()
 
@@ -237,32 +236,6 @@ struct ContentView: View {
         .padding(28)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .padding(28)
-    }
-}
-
-private struct LatestPhotoView: View {
-    let image: UIImage
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                Color.black.ignoresSafeArea()
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .padding(12)
-            }
-            .navigationTitle("Latest Photo")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { dismiss() }
-                        .foregroundStyle(.white)
-                }
-            }
-        }
-        .preferredColorScheme(.dark)
     }
 }
 
