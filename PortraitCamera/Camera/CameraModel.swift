@@ -106,14 +106,21 @@ final class CameraModel: NSObject, ObservableObject {
 
         sessionQueue.async { [weak self] in
             guard let self, let device = self.videoInput?.device else { return }
-            let hardwareZoom = min(desired, self.deviceMaxZoomFactor)
+            let minimumZoom = max(1.0, device.minAvailableVideoZoomFactor)
+            let hardwareZoom = min(
+                max(desired, minimumZoom),
+                max(minimumZoom, self.deviceMaxZoomFactor)
+            )
             do {
                 try device.lockForConfiguration()
+                if device.isRampingVideoZoom {
+                    device.cancelVideoZoomRamp()
+                }
                 device.videoZoomFactor = hardwareZoom
                 device.unlockForConfiguration()
                 DispatchQueue.main.async {
                     self.deviceZoomFactor = hardwareZoom
-                    if desired > self.deviceMaxZoomFactor + 0.01 {
+                    if desired > hardwareZoom + 0.01 {
                         self.statusMessage = "2× software framing"
                     }
                 }
@@ -200,9 +207,12 @@ final class CameraModel: NSObject, ObservableObject {
 
                 depthAvailable = self.photoOutput.isDepthDataDeliveryEnabled
                 matteAvailable = self.photoOutput.isPortraitEffectsMatteDeliveryEnabled
+                // Depth delivery can change the usable zoom range on a
+                // virtual camera. Read the live bounds only after enabling
+                // depth, rather than using activeFormat.videoMaxZoomFactor.
                 self.deviceMaxZoomFactor = max(
                     1.0,
-                    min(camera.activeFormat.videoMaxZoomFactor, displayMaxZoomFactor)
+                    min(camera.maxAvailableVideoZoomFactor, displayMaxZoomFactor)
                 )
                 self.isSessionConfigured = true
             } catch {
