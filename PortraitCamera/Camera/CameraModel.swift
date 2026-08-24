@@ -75,6 +75,9 @@ final class CameraModel: NSObject, ObservableObject {
             // combinations while still allowing AVFoundation to attach its
             // native depth and Portrait Effects matte data.
             let settings = AVCapturePhotoSettings()
+            if self.photoOutput.maxPhotoQualityPrioritization == .quality {
+                settings.photoQualityPrioritization = .quality
+            }
             if self.photoOutput.supportedFlashModes.contains(.off) {
                 settings.flashMode = .off
             }
@@ -179,6 +182,7 @@ final class CameraModel: NSObject, ObservableObject {
 
                 guard self.session.canAddOutput(self.photoOutput) else { throw CameraError.unavailable }
                 self.session.addOutput(self.photoOutput)
+                self.photoOutput.maxPhotoQualityPrioritization = .quality
 
                 if self.photoOutput.isDepthDataDeliverySupported {
                     self.photoOutput.isDepthDataDeliveryEnabled = true
@@ -324,7 +328,7 @@ final class CameraModel: NSObject, ObservableObject {
 
         guard let croppedData = packageImage(
             croppedImage,
-            metadata: photo.metadata,
+            metadata: croppedMetadata(from: photo.metadata, width: croppedImage.width, height: croppedImage.height),
             depthAuxiliaryInfo: depthAuxiliaryInfo,
             matteAuxiliaryInfo: matteAuxiliaryInfo
         ) else {
@@ -381,6 +385,22 @@ final class CameraModel: NSObject, ObservableObject {
         guard cropRect.width > 1, cropRect.height > 1 else { return nil }
 
         let pixelFormat = CVPixelBufferGetPixelFormatType(source)
+        let bytesPerPixel: Int
+        switch pixelFormat {
+        case kCVPixelFormatType_DepthFloat16,
+             kCVPixelFormatType_DisparityFloat16,
+             kCVPixelFormatType_OneComponent16Half:
+            bytesPerPixel = 2
+        case kCVPixelFormatType_DepthFloat32,
+             kCVPixelFormatType_DisparityFloat32,
+             kCVPixelFormatType_OneComponent32Float:
+            bytesPerPixel = 4
+        case kCVPixelFormatType_OneComponent8:
+            bytesPerPixel = 1
+        default:
+            return nil
+        }
+
         let attributes: [String: Any] = [
             kCVPixelBufferCGImageCompatibilityKey as String: true,
             kCVPixelBufferCGBitmapContextCompatibilityKey as String: true
@@ -396,9 +416,44 @@ final class CameraModel: NSObject, ObservableObject {
         )
         guard status == kCVReturnSuccess, let destination else { return nil }
 
-        let image = CIImage(cvPixelBuffer: source).cropped(to: cropRect)
-        ciContext.render(image, to: destination)
+        guard CVPixelBufferLockBaseAddress(source, .readOnly) == kCVReturnSuccess else { return nil }
+        defer { CVPixelBufferUnlockBaseAddress(source, .readOnly) }
+        guard CVPixelBufferLockBaseAddress(destination, []) == kCVReturnSuccess else { return nil }
+        defer { CVPixelBufferUnlockBaseAddress(destination, []) }
+
+        let sourceBytesPerRow = CVPixelBufferGetBytesPerRow(source)
+        let destinationBytesPerRow = CVPixelBufferGetBytesPerRow(destination)
+        let copyBytesPerRow = Int(cropRect.width) * bytesPerPixel
+        let sourceBaseAddress = CVPixelBufferGetBaseAddress(source)
+        let destinationBaseAddress = CVPixelBufferGetBaseAddress(destination)
+        guard let sourceBaseAddress, let destinationBaseAddress,
+              copyBytesPerRow <= sourceBytesPerRow,
+              copyBytesPerRow <= destinationBytesPerRow else { return nil }
+
+        let sourceStartX = Int(cropRect.minX) * bytesPerPixel
+        let sourceStartY = Int(cropRect.minY)
+        for row in 0..<Int(cropRect.height) {
+            let sourceRow = sourceBaseAddress
+                .advanced(by: (sourceStartY + row) * sourceBytesPerRow + sourceStartX)
+            let destinationRow = destinationBaseAddress
+                .advanced(by: row * destinationBytesPerRow)
+            destinationRow.copyMemory(from: sourceRow, byteCount: copyBytesPerRow)
+        }
         return destination
+    }
+
+    private func croppedMetadata(from original: [String: Any], width: Int, height: Int) -> [String: Any] {
+        var result = original
+        result[kCGImagePropertyPixelWidth as String] = width
+        result[kCGImagePropertyPixelHeight as String] = height
+
+        if let originalExif = original[kCGImagePropertyExifDictionary as String] as? [String: Any] {
+            var exif = originalExif
+            exif[kCGImagePropertyExifPixelXDimension as String] = width
+            exif[kCGImagePropertyExifPixelYDimension as String] = height
+            result[kCGImagePropertyExifDictionary as String] = exif
+        }
+        return result
     }
 
     private func packageImage(
