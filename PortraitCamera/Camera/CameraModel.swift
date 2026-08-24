@@ -27,16 +27,6 @@ final class CameraModel: NSObject, ObservableObject {
     private var captureInFlight = false
     private var softwareZoomFactor: CGFloat = 1.0
     private var activeCaptureZoomFactor: CGFloat = 1.0
-    private var focusStackStage: FocusStackStage = .idle
-    private var focusStackSubjectPhoto: AVCapturePhoto?
-    private var focusStackBackgroundPhoto: AVCapturePhoto?
-    private var focusStackOriginalLensPosition: Float?
-
-    private enum FocusStackStage {
-        case idle
-        case capturingSubject
-        case capturingBackground
-    }
 
     func start() {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
@@ -81,31 +71,9 @@ final class CameraModel: NSObject, ObservableObject {
 
             self.captureInFlight = true
             self.activeCaptureZoomFactor = self.softwareZoomFactor
-            self.focusStackStage = .idle
-            self.focusStackSubjectPhoto = nil
-            self.focusStackBackgroundPhoto = nil
-            self.focusStackOriginalLensPosition = nil
             DispatchQueue.main.async { self.isCapturing = true }
-
-            if self.activeCaptureZoomFactor > 1.01 && self.canUseFocusStack {
-                self.beginFocusStackCapture()
-            } else {
-                self.captureSinglePhoto(includePortraitData: true)
-            }
+            self.captureSinglePhoto(includePortraitData: true)
         }
-    }
-
-    private var canUseFocusStack: Bool {
-        guard activeCaptureZoomFactor > 1.01,
-              let device = videoInput?.device,
-              device.isFocusModeSupported(.locked),
-              device.isLockingFocusWithCustomLensPositionSupported else {
-            return false
-        }
-        return photoOutput.isDepthDataDeliverySupported
-            && photoOutput.isDepthDataDeliveryEnabled
-            && photoOutput.isPortraitEffectsMatteDeliverySupported
-            && photoOutput.isPortraitEffectsMatteDeliveryEnabled
     }
 
     private func makePhotoSettings(includePortraitData: Bool) -> AVCapturePhotoSettings {
@@ -142,143 +110,6 @@ final class CameraModel: NSObject, ObservableObject {
         )
     }
 
-    private func beginFocusStackCapture() {
-        guard let device = videoInput?.device else {
-            captureSinglePhoto(includePortraitData: true)
-            return
-        }
-
-        focusStackStage = .capturingSubject
-        focusStackOriginalLensPosition = device.lensPosition
-        captureSinglePhoto(includePortraitData: true)
-    }
-
-    private func beginBackgroundFocusCapture() {
-        guard let device = videoInput?.device,
-              device.isLockingFocusWithCustomLensPositionSupported else {
-            finishFocusStackUsingSubjectOnly()
-            return
-        }
-
-        focusStackStage = .capturingBackground
-        device.setFocusModeLocked(lensPosition: 1.0) { [weak self] _ in
-            self?.sessionQueue.asyncAfter(deadline: .now() + 0.10) { [weak self] in
-                guard let self else { return }
-                self.captureSinglePhoto(includePortraitData: false)
-            }
-        }
-    }
-
-    private func finishFocusStackUsingSubjectOnly() {
-        guard let subjectPhoto = focusStackSubjectPhoto else {
-            finishCapture(with: "Could not create the photo file")
-            return
-        }
-        let zoom = activeCaptureZoomFactor
-        let data = softwareZoomedFileData(for: subjectPhoto, factor: zoom)
-        restoreFocusAfterStack()
-        clearFocusStackState()
-        guard let data else {
-            finishCapture(with: "Could not create the photo file")
-            return
-        }
-        saveToPhotos(data: data, zoomFactor: zoom)
-    }
-
-    private func finishFocusStackCapture() {
-        guard let subjectPhoto = focusStackSubjectPhoto,
-              let backgroundPhoto = focusStackBackgroundPhoto else {
-            finishFocusStackUsingSubjectOnly()
-            return
-        }
-
-        let zoom = activeCaptureZoomFactor
-        let stackedImage = makeFocusStackImage(
-            subjectPhoto: subjectPhoto,
-            backgroundPhoto: backgroundPhoto
-        )
-        let data = softwareZoomedFileData(
-            for: subjectPhoto,
-            factor: zoom,
-            replacementImage: stackedImage
-        )
-        restoreFocusAfterStack()
-        clearFocusStackState()
-        guard let data else {
-            finishCapture(with: "Could not create the photo file")
-            return
-        }
-        saveToPhotos(data: data, zoomFactor: zoom)
-    }
-
-    private func restoreFocusAfterStack() {
-        guard let device = videoInput?.device else { return }
-        let originalLensPosition = focusStackOriginalLensPosition
-
-        if let originalLensPosition,
-           device.isLockingFocusWithCustomLensPositionSupported {
-            device.setFocusModeLocked(lensPosition: originalLensPosition) { [weak self] _ in
-                self?.sessionQueue.async {
-                    self?.restoreContinuousFocusIfSupported(on: device)
-                }
-            }
-        } else {
-            restoreContinuousFocusIfSupported(on: device)
-        }
-    }
-
-    private func restoreContinuousFocusIfSupported(on device: AVCaptureDevice) {
-        do {
-            try device.lockForConfiguration()
-            if device.isFocusModeSupported(.continuousAutoFocus) {
-                device.focusMode = .continuousAutoFocus
-            }
-            device.unlockForConfiguration()
-        } catch {
-            // Focus restoration is best effort; the next tap-to-focus can still
-            // reconfigure the device through the existing focus path.
-        }
-    }
-
-    private func clearFocusStackState() {
-        focusStackStage = .idle
-        focusStackSubjectPhoto = nil
-        focusStackBackgroundPhoto = nil
-        focusStackOriginalLensPosition = nil
-    }
-
-    private func makeFocusStackImage(
-        subjectPhoto: AVCapturePhoto,
-        backgroundPhoto: AVCapturePhoto
-    ) -> CGImage? {
-        guard let subjectImage = subjectPhoto.cgImageRepresentation(),
-              let backgroundImage = backgroundPhoto.cgImageRepresentation(),
-              let matte = subjectPhoto.portraitEffectsMatte else {
-            return nil
-        }
-
-        let foreground = CIImage(cgImage: subjectImage)
-        let background = CIImage(cgImage: backgroundImage)
-        let matteImage = CIImage(cvPixelBuffer: matte.mattingImage)
-        guard foreground.extent.width > 0,
-              foreground.extent.height > 0,
-              matteImage.extent.width > 0,
-              matteImage.extent.height > 0 else { return nil }
-
-        let scaleX = foreground.extent.width / matteImage.extent.width
-        let scaleY = foreground.extent.height / matteImage.extent.height
-        let scaledMatte = matteImage
-            .transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
-            .cropped(to: foreground.extent)
-
-        guard let filter = CIFilter(name: "CIBlendWithMask") else { return nil }
-        filter.setValue(foreground, forKey: kCIInputImageKey)
-        filter.setValue(background, forKey: kCIInputBackgroundImageKey)
-        filter.setValue(scaledMatte, forKey: kCIInputMaskImageKey)
-        guard let result = filter.outputImage else { return nil }
-        return ciContext.createCGImage(result, from: foreground.extent)
-    }
-
     func setZoomFactor(_ requestedFactor: CGFloat) {
         let desired = min(max(requestedFactor, 1.0), displayMaxZoomFactor)
 
@@ -297,11 +128,10 @@ final class CameraModel: NSObject, ObservableObject {
         }
     }
 
-    func focus(at point: CGPoint, in previewSize: CGSize) {
-        guard previewSize.width > 0, previewSize.height > 0 else { return }
-        let normalized = CGPoint(
-            x: min(max(point.x / previewSize.width, 0), 1),
-            y: min(max(point.y / previewSize.height, 0), 1)
+    func focus(at devicePoint: CGPoint) {
+        let point = CGPoint(
+            x: min(max(devicePoint.x, 0), 1),
+            y: min(max(devicePoint.y, 0), 1)
         )
 
         sessionQueue.async { [weak self] in
@@ -309,11 +139,11 @@ final class CameraModel: NSObject, ObservableObject {
             do {
                 try device.lockForConfiguration()
                 if device.isFocusPointOfInterestSupported {
-                    device.focusPointOfInterest = normalized
+                    device.focusPointOfInterest = point
                     device.focusMode = .continuousAutoFocus
                 }
                 if device.isExposurePointOfInterestSupported {
-                    device.exposurePointOfInterest = normalized
+                    device.exposurePointOfInterest = point
                     device.exposureMode = .continuousAutoExposure
                 }
                 device.unlockForConfiguration()
@@ -413,9 +243,7 @@ final class CameraModel: NSObject, ObservableObject {
                     self.isCapturing = false
                     self.captureInFlight = false
                     if success {
-                        self.statusMessage = zoomFactor > 1.01
-                            ? "Portrait saved at 2× software crop"
-                            : "Portrait saved to Photos"
+                        self.statusMessage = nil
                     } else {
                         self.statusMessage = error?.localizedDescription ?? "Could not save photo"
                     }
@@ -459,12 +287,13 @@ final class CameraModel: NSObject, ObservableObject {
 
     private func softwareZoomedFileData(
         for photo: AVCapturePhoto,
-        factor: CGFloat,
-        replacementImage: CGImage? = nil
+        factor: CGFloat
     ) -> Data? {
-        guard factor > 1.01 else { return photo.fileDataRepresentation() }
-        guard let primaryImage = replacementImage ?? photo.cgImageRepresentation() else {
-            return photo.fileDataRepresentation()
+        guard factor > 1.01 else {
+            return portraitEnabledFileData(for: photo) ?? photo.fileDataRepresentation()
+        }
+        guard let primaryImage = photo.cgImageRepresentation() else {
+            return portraitEnabledFileData(for: photo) ?? photo.fileDataRepresentation()
         }
 
         let normalizedCrop = CGRect(x: 0.25, y: 0.25, width: 0.5, height: 0.5)
@@ -509,15 +338,84 @@ final class CameraModel: NSObject, ObservableObject {
 
         guard let croppedData = packageImage(
             croppedImage,
-            metadata: croppedMetadata(from: photo.metadata, width: croppedImage.width, height: croppedImage.height),
+            metadata: portraitEnabledMetadata(
+                from: croppedMetadata(from: photo.metadata, width: croppedImage.width, height: croppedImage.height)
+            ),
             depthAuxiliaryInfo: depthAuxiliaryInfo,
             matteAuxiliaryInfo: matteAuxiliaryInfo
         ) else {
             // Never discard a genuine Portrait capture merely because a
             // derivative software crop could not be packaged on this OS.
-            return photo.fileDataRepresentation()
+            return portraitEnabledFileData(for: photo) ?? photo.fileDataRepresentation()
         }
         return croppedData
+    }
+
+    private func portraitEnabledFileData(for photo: AVCapturePhoto) -> Data? {
+        guard let image = photo.cgImageRepresentation() else { return nil }
+        let originalMetadata = photo.metadata
+        let originalMakerApple = originalMetadata[kCGImagePropertyMakerAppleDictionary as String] as? [String: Any]
+        if originalMakerApple?["25"] != nil {
+            return photo.fileDataRepresentation()
+        }
+        let metadata = portraitEnabledMetadata(from: originalMetadata)
+
+        var depthAuxiliaryInfo: (CFString, CFDictionary)?
+        if let depth = photo.depthData {
+            var depthType: NSString?
+            if let originalInfo = depth.dictionaryRepresentation(forAuxiliaryDataType: &depthType),
+               let depthType {
+                depthAuxiliaryInfo = auxiliaryInfo(
+                    from: originalInfo,
+                    auxiliaryType: depthType,
+                    map: depth.depthDataMap
+                )
+            }
+        }
+
+        var matteAuxiliaryInfo: (CFString, CFDictionary)?
+        if let matte = photo.portraitEffectsMatte {
+            var matteType: NSString?
+            if let originalInfo = matte.dictionaryRepresentation(forAuxiliaryDataType: &matteType),
+               let matteType {
+                matteAuxiliaryInfo = auxiliaryInfo(
+                    from: originalInfo,
+                    auxiliaryType: matteType,
+                    map: matte.mattingImage
+                )
+            }
+        }
+
+        guard depthAuxiliaryInfo != nil || matteAuxiliaryInfo != nil else { return nil }
+        return packageImage(
+            image,
+            metadata: metadata,
+            depthAuxiliaryInfo: depthAuxiliaryInfo,
+            matteAuxiliaryInfo: matteAuxiliaryInfo
+        )
+    }
+
+    private func auxiliaryInfo(
+        from originalInfo: [AnyHashable: Any],
+        auxiliaryType: NSString,
+        map: CVPixelBuffer
+    ) -> (CFString, CFDictionary)? {
+        guard let mapData = pixelBufferData(map) else { return nil }
+        let result = NSMutableDictionary(dictionary: originalInfo)
+        result.setObject(mapData as NSData, forKey: kCGImageAuxiliaryDataInfoData as NSString)
+        return (auxiliaryType as CFString, result as CFDictionary)
+    }
+
+    private func portraitEnabledMetadata(from original: [String: Any]) -> [String: Any] {
+        var result = original
+        var makerApple = (original[kCGImagePropertyMakerAppleDictionary as String] as? [String: Any]) ?? [:]
+        // Apple’s native Portrait captures carry a nonzero SceneFlags value.
+        // Preserve an existing value; otherwise use the conservative Portrait marker.
+        if makerApple["25"] == nil {
+            makerApple["25"] = 1
+        }
+        result[kCGImagePropertyMakerAppleDictionary as String] = makerApple
+        return result
     }
 
     private func croppedAuxiliaryInfo(
@@ -675,40 +573,20 @@ final class CameraModel: NSObject, ObservableObject {
 extension CameraModel: AVCapturePhotoCaptureDelegate {
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
         if let error {
-            if focusStackStage == .capturingBackground {
-                finishFocusStackUsingSubjectOnly()
-            } else {
-                clearFocusStackState()
-                finishCapture(with: error.localizedDescription)
-            }
+            finishCapture(with: error.localizedDescription)
             return
         }
 
-        switch focusStackStage {
-        case .capturingSubject:
-            guard photo.portraitEffectsMatte != nil else {
-                finishFocusStackUsingSubjectOnly()
-                return
-            }
-            focusStackSubjectPhoto = photo
-            beginBackgroundFocusCapture()
-
-        case .capturingBackground:
-            focusStackBackgroundPhoto = photo
-            finishFocusStackCapture()
-
-        case .idle:
-            let zoom = activeCaptureZoomFactor
-            guard let data = softwareZoomedFileData(for: photo, factor: zoom) else {
-                finishCapture(with: "Could not create the photo file")
-                return
-            }
-            saveToPhotos(data: data, zoomFactor: zoom)
+        let zoom = activeCaptureZoomFactor
+        guard let data = softwareZoomedFileData(for: photo, factor: zoom) else {
+            finishCapture(with: "Could not create the photo file")
+            return
         }
+        saveToPhotos(data: data, zoomFactor: zoom)
     }
 
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishCaptureFor resolvedSettings: AVCaptureResolvedPhotoSettings, error: Error?) {
-        if let error, focusStackStage == .idle {
+        if let error {
             finishCapture(with: error.localizedDescription)
         }
     }
