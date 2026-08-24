@@ -6,12 +6,14 @@ struct CameraPreview: UIViewRepresentable {
     let session: AVCaptureSession
     let zoomFactor: CGFloat
     let deviceZoomFactor: CGFloat
+    let videoOrientation: AVCaptureVideoOrientation
     let onTap: (CGPoint, CGPoint) -> Void
 
     func makeUIView(context: Context) -> PreviewView {
         let view = PreviewView()
         view.videoPreviewLayer.session = session
         view.onTap = onTap
+        view.setVideoOrientation(videoOrientation)
         view.setDigitalZoom(max(1.0, zoomFactor / max(deviceZoomFactor, 1.0)))
         return view
     }
@@ -19,6 +21,7 @@ struct CameraPreview: UIViewRepresentable {
     func updateUIView(_ view: PreviewView, context: Context) {
         view.videoPreviewLayer.session = session
         view.onTap = onTap
+        view.setVideoOrientation(videoOrientation)
         view.setDigitalZoom(max(1.0, zoomFactor / max(deviceZoomFactor, 1.0)))
     }
 }
@@ -55,6 +58,12 @@ final class PreviewView: UIView {
         previewLayer.bounds = bounds
         previewLayer.position = CGPoint(x: bounds.midX, y: bounds.midY)
         CATransaction.commit()
+    }
+
+    func setVideoOrientation(_ orientation: AVCaptureVideoOrientation) {
+        guard let connection = previewLayer.connection,
+              connection.isVideoOrientationSupported else { return }
+        connection.videoOrientation = orientation
     }
 
     func setDigitalZoom(_ factor: CGFloat) {

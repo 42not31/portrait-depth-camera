@@ -3,6 +3,7 @@ import CoreImage
 import ImageIO
 import Photos
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
 final class CameraModel: NSObject, ObservableObject {
@@ -14,6 +15,8 @@ final class CameraModel: NSObject, ObservableObject {
     @Published private(set) var zoomFactor: CGFloat = 1.0
     @Published private(set) var deviceZoomFactor: CGFloat = 1.0
     @Published private(set) var captureMode: CaptureMode = .portrait
+    @Published private(set) var videoOrientation: AVCaptureVideoOrientation = .portrait
+    @Published private(set) var latestPhotoImage: UIImage?
     @Published private(set) var depthCaptureAvailable = false
     @Published private(set) var portraitMatteAvailable = false
     @Published var permissionDenied = false
@@ -29,6 +32,28 @@ final class CameraModel: NSObject, ObservableObject {
     private var softwareZoomFactor: CGFloat = 1.0
     private var activeCaptureZoomFactor: CGFloat = 1.0
     private var activeCaptureMode: CaptureMode = .portrait
+    private var activeVideoOrientation: AVCaptureVideoOrientation = .portrait
+    private var orientationObserver: NSObjectProtocol?
+
+    override init() {
+        super.init()
+        UIDevice.current.beginGeneratingDeviceOrientationNotifications()
+        updateOrientation(for: UIDevice.current.orientation)
+        orientationObserver = NotificationCenter.default.addObserver(
+            forName: UIDevice.orientationDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.updateOrientation(for: UIDevice.current.orientation)
+        }
+    }
+
+    deinit {
+        if let orientationObserver {
+            NotificationCenter.default.removeObserver(orientationObserver)
+        }
+        UIDevice.current.endGeneratingDeviceOrientationNotifications()
+    }
 
     func start() {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
@@ -73,6 +98,7 @@ final class CameraModel: NSObject, ObservableObject {
             guard !self.captureInFlight else { return }
 
             self.captureInFlight = true
+            self.applyVideoOrientation()
             self.activeCaptureZoomFactor = self.softwareZoomFactor
             self.activeCaptureMode = requestedMode
             DispatchQueue.main.async { self.isCapturing = true }
@@ -184,6 +210,38 @@ final class CameraModel: NSObject, ObservableObject {
         }
     }
 
+    private func updateOrientation(for deviceOrientation: UIDeviceOrientation) {
+        let mappedOrientation: AVCaptureVideoOrientation
+        switch deviceOrientation {
+        case .landscapeLeft:
+            // UIDevice orientation is viewed from the back of the phone;
+            // capture orientation is therefore the opposite landscape side.
+            mappedOrientation = .landscapeRight
+        case .landscapeRight:
+            mappedOrientation = .landscapeLeft
+        case .portraitUpsideDown:
+            mappedOrientation = .portraitUpsideDown
+        case .portrait:
+            mappedOrientation = .portrait
+        default:
+            return
+        }
+
+        guard videoOrientation != mappedOrientation else { return }
+        videoOrientation = mappedOrientation
+        sessionQueue.async { [weak self] in
+            guard let self else { return }
+            self.activeVideoOrientation = mappedOrientation
+            self.applyVideoOrientation()
+        }
+    }
+
+    private func applyVideoOrientation() {
+        guard let connection = photoOutput.connection(with: .video),
+              connection.isVideoOrientationSupported else { return }
+        connection.videoOrientation = activeVideoOrientation
+    }
+
     private func configureIfNeeded() {
         sessionQueue.async { [weak self] in
             guard let self else { return }
@@ -218,6 +276,7 @@ final class CameraModel: NSObject, ObservableObject {
 
                 guard self.session.canAddOutput(self.photoOutput) else { throw CameraError.unavailable }
                 self.session.addOutput(self.photoOutput)
+                self.applyVideoOrientation()
                 self.photoOutput.maxPhotoQualityPrioritization = .quality
 
                 if self.photoOutput.isDepthDataDeliverySupported {
@@ -262,6 +321,7 @@ final class CameraModel: NSObject, ObservableObject {
     }
 
     private func saveToPhotos(data: Data, zoomFactor: CGFloat) {
+        let latestThumbnail = UIImage(data: data)?.preparingThumbnail(of: CGSize(width: 320, height: 320))
         let save: () -> Void = { [weak self] in
             PHPhotoLibrary.shared().performChanges({
                 let request = PHAssetCreationRequest.forAsset()
@@ -272,6 +332,7 @@ final class CameraModel: NSObject, ObservableObject {
                     self.isCapturing = false
                     self.captureInFlight = false
                     if success {
+                        self.latestPhotoImage = latestThumbnail
                         self.statusMessage = nil
                     } else {
                         self.statusMessage = error?.localizedDescription ?? "Could not save photo"
