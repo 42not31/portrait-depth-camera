@@ -170,13 +170,15 @@ final class CameraModel: NSObject, ObservableObject {
             }
 
             self.session.beginConfiguration()
-            defer { self.session.commitConfiguration() }
 
             guard self.session.canSetSessionPreset(.photo) else {
+                self.session.commitConfiguration()
                 DispatchQueue.main.async { self.statusMessage = "Photo capture is unavailable" }
                 return
             }
             self.session.sessionPreset = .photo
+            var depthAvailable = false
+            var matteAvailable = false
 
             do {
                 let camera = try self.makeRearCamera()
@@ -196,25 +198,31 @@ final class CameraModel: NSObject, ObservableObject {
                     self.photoOutput.isPortraitEffectsMatteDeliveryEnabled = true
                 }
 
-                let depthAvailable = self.photoOutput.isDepthDataDeliveryEnabled
-                let matteAvailable = self.photoOutput.isPortraitEffectsMatteDeliveryEnabled
+                depthAvailable = self.photoOutput.isDepthDataDeliveryEnabled
+                matteAvailable = self.photoOutput.isPortraitEffectsMatteDeliveryEnabled
                 self.deviceMaxZoomFactor = max(1.0, min(camera.activeFormat.videoMaxZoomFactor, displayMaxZoomFactor))
                 self.isSessionConfigured = true
-                self.session.startRunning()
-
-                DispatchQueue.main.async {
-                    self.depthCaptureAvailable = depthAvailable
-                    self.portraitMatteAvailable = matteAvailable
-                    self.isConfigured = true
-                    self.isRunning = true
-                    self.deviceZoomFactor = 1.0
-                    self.zoomFactor = 1.0
-                }
             } catch {
+                self.session.commitConfiguration()
                 self.videoInput = nil
                 DispatchQueue.main.async {
                     self.statusMessage = "Camera setup failed"
                 }
+                return
+            }
+
+            // Commit before starting. AVFoundation requires startRunning()
+            // to happen outside beginConfiguration()/commitConfiguration().
+            self.session.commitConfiguration()
+            self.session.startRunning()
+
+            DispatchQueue.main.async {
+                self.depthCaptureAvailable = depthAvailable
+                self.portraitMatteAvailable = matteAvailable
+                self.isConfigured = true
+                self.isRunning = true
+                self.deviceZoomFactor = 1.0
+                self.zoomFactor = 1.0
             }
         }
     }
