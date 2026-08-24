@@ -7,6 +7,7 @@ struct ContentView: View {
     @State private var focusPoint: CGPoint?
     @State private var focusAnimationID = UUID()
     @State private var showSettings = false
+    @State private var showLatestPhoto = false
 
     private let zoomPresets: [CGFloat] = [1.0, 2.0]
 
@@ -57,6 +58,11 @@ struct ContentView: View {
         .sheet(isPresented: $showSettings) {
             SettingsView(settings: settings)
         }
+        .sheet(isPresented: $showLatestPhoto) {
+            if let image = camera.latestPhotoImage {
+                LatestPhotoView(image: image)
+            }
+        }
     }
 
     private var header: some View {
@@ -105,6 +111,7 @@ struct ContentView: View {
             session: camera.session,
             zoomFactor: camera.zoomFactor,
             deviceZoomFactor: camera.deviceZoomFactor,
+            videoOrientation: camera.videoOrientation,
             onTap: { viewPoint, devicePoint in
                 camera.focus(at: devicePoint)
                 focusPoint = viewPoint
@@ -158,22 +165,57 @@ struct ContentView: View {
                 }
             }
 
-            Button {
-                camera.capturePhoto()
-            } label: {
-                ZStack {
-                    Circle()
-                        .stroke(.white, lineWidth: 4)
-                        .frame(width: 76, height: 76)
-                    Circle()
-                        .fill(camera.isCapturing ? .white.opacity(0.45) : .white)
-                        .frame(width: 62, height: 62)
+            HStack {
+                Button {
+                    showLatestPhoto = true
+                } label: {
+                    Group {
+                        if let image = camera.latestPhotoImage {
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFill()
+                        } else {
+                            Image(systemName: "photo")
+                                .font(.system(size: 18, weight: .medium))
+                                .foregroundStyle(.white.opacity(0.34))
+                        }
+                    }
+                    .frame(width: 56, height: 56)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .background(.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(.white.opacity(0.18), lineWidth: 1)
+                    }
                 }
+                .buttonStyle(.plain)
+                .disabled(camera.latestPhotoImage == nil)
+                .accessibilityLabel(camera.latestPhotoImage == nil ? "No photo captured yet" : "Open latest photo")
+
+                Spacer()
+
+                Button {
+                    camera.capturePhoto()
+                } label: {
+                    ZStack {
+                        Circle()
+                            .stroke(.white, lineWidth: 4)
+                            .frame(width: 76, height: 76)
+                        Circle()
+                            .fill(camera.isCapturing ? .white.opacity(0.45) : .white)
+                            .frame(width: 62, height: 62)
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(camera.isCapturing || !camera.isConfigured || !camera.isRunning)
+                .scaleEffect(camera.isCapturing ? 0.94 : 1.0)
+                .animation(.easeOut(duration: 0.16), value: camera.isCapturing)
+                .accessibilityLabel("Shutter")
+
+                Spacer()
+                Color.clear.frame(width: 56, height: 56)
             }
-            .buttonStyle(.plain)
-            .disabled(camera.isCapturing || !camera.isConfigured || !camera.isRunning)
-            .scaleEffect(camera.isCapturing ? 0.94 : 1.0)
-            .animation(.easeOut(duration: 0.16), value: camera.isCapturing)
+            .padding(.horizontal, 28)
         }
         .padding(.top, 16)
         .padding(.bottom, 22)
@@ -195,6 +237,32 @@ struct ContentView: View {
         .padding(28)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .padding(28)
+    }
+}
+
+private struct LatestPhotoView: View {
+    let image: UIImage
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color.black.ignoresSafeArea()
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .padding(12)
+            }
+            .navigationTitle("Latest Photo")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                        .foregroundStyle(.white)
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
     }
 }
 
