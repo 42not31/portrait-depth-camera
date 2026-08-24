@@ -6,34 +6,49 @@ workflows:
     environment:
       xcode: latest
     scripts:
-      - name: Show Xcode version
-        script: xcodebuild -version
       - name: Build unsigned iPhoneOS app
         script: |
           set -euo pipefail
-          rm -rf "$CM_BUILD_DIR/derived-data" "$CM_BUILD_DIR/build"
-          mkdir -p "$CM_BUILD_DIR/build"
-          xcodebuild build \
-            -project "PortraitCamera.xcodeproj" \
-            -scheme "PortraitCamera" \
+          rm -rf build Payload PortraitCamera-unsigned.ipa SHA256SUMS.txt
+          xcodebuild \
+            -project PortraitCamera.xcodeproj \
+            -scheme PortraitCamera \
             -configuration Release \
             -sdk iphoneos \
-            -derivedDataPath "$CM_BUILD_DIR/derived-data" \
+            -derivedDataPath build/derived-data \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
-            DEVELOPMENT_TEAM=""
-      - name: Package unsigned IPA
+            DEVELOPMENT_TEAM="" \
+            ONLY_ACTIVE_ARCH=NO
+      - name: Validate device bundle metadata
         script: |
           set -euo pipefail
-          APP_PATH="$CM_BUILD_DIR/derived-data/Build/Products/Release-iphoneos/PortraitCamera.app"
+          APP_PATH="build/derived-data/Build/Products/Release-iphoneos/PortraitCamera.app"
+          PLIST="$APP_PATH/Info.plist"
           test -d "$APP_PATH"
-          mkdir -p "$CM_BUILD_DIR/build/Payload"
-          cp -R "$APP_PATH" "$CM_BUILD_DIR/build/Payload/PortraitCamera.app"
-          cd "$CM_BUILD_DIR/build"
-          /usr/bin/zip -qry "PortraitCamera-unsigned.ipa" Payload
-          rm -rf Payload
-          shasum -a 256 "PortraitCamera-unsigned.ipa" > SHA256SUMS.txt
+          test -f "$PLIST"
+          /usr/bin/plutil -lint "$PLIST"
+          EXECUTABLE=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$PLIST")
+          IDENTIFIER=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$PLIST")
+          test -n "$EXECUTABLE"
+          test -n "$IDENTIFIER"
+          test -f "$APP_PATH/$EXECUTABLE"
+          file "$APP_PATH/$EXECUTABLE" | grep -E 'Mach-O|current ar archive' >/dev/null
+          echo "Validated executable: $EXECUTABLE"
+          echo "Validated bundle identifier: $IDENTIFIER"
+      - name: Package and re-validate unsigned IPA
+        script: |
+          set -euo pipefail
+          APP_PATH="build/derived-data/Build/Products/Release-iphoneos/PortraitCamera.app"
+          EXECUTABLE=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP_PATH/Info.plist")
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+          ditto -c -k --keepParent Payload PortraitCamera-unsigned.ipa
+          /usr/bin/shasum -a 256 PortraitCamera-unsigned.ipa > SHA256SUMS.txt
+          /usr/bin/unzip -t PortraitCamera-unsigned.ipa >/dev/null
+          /usr/bin/unzip -l PortraitCamera-unsigned.ipa | grep -F "Payload/PortraitCamera.app/$EXECUTABLE" >/dev/null
+          echo "Validated IPA payload executable: $EXECUTABLE"
     artifacts:
-      - build/PortraitCamera-unsigned.ipa
-      - build/SHA256SUMS.txt
+      - PortraitCamera-unsigned.ipa
+      - SHA256SUMS.txt
