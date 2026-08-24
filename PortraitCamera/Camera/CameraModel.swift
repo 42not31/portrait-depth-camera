@@ -19,8 +19,9 @@ final class CameraModel: NSObject, ObservableObject {
     private let photoOutput = AVCapturePhotoOutput()
     private var videoInput: AVCaptureDeviceInput?
     private var deviceMaxZoomFactor: CGFloat = 1.0
-    private let displayMaxZoomFactor: CGFloat = 3.0
+    private let displayMaxZoomFactor: CGFloat = 2.0
     private var isSessionConfigured = false
+    private var captureInFlight = false
 
     func start() {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
@@ -49,7 +50,7 @@ final class CameraModel: NSObject, ObservableObject {
     }
 
     func capturePhoto() {
-        guard isConfigured, !isCapturing else { return }
+        guard isConfigured, isRunning, !isCapturing else { return }
 
         sessionQueue.async { [weak self] in
             guard let self else { return }
@@ -61,29 +62,28 @@ final class CameraModel: NSObject, ObservableObject {
                 self.finishCapture(with: "Camera is preparing")
                 return
             }
+            guard !self.captureInFlight else { return }
+            self.captureInFlight = true
 
-            DispatchQueue.main.async { self.isCapturing = true }
-
-            // Let AVFoundation choose the compatible still-image codec. A
-            // forced HEVC settings dictionary can reject auxiliary depth/matte
-            // streams on some device/OS combinations.
+            // A new settings object is required for every capture. Keep the
+            // base settings intentionally conservative; AVFoundation chooses
+            // the compatible processed photo format for this device/format.
             let settings = AVCapturePhotoSettings()
 
-            if self.videoInput?.device.hasFlash == true,
-               self.photoOutput.supportedFlashModes.contains(.off) {
+            if self.photoOutput.supportedFlashModes.contains(.off) {
                 settings.flashMode = .off
             }
 
-            settings.photoQualityPrioritization = .quality
-            settings.isHighResolutionPhotoEnabled = true
-
-            // These flags are set only after the output has advertised support.
-            // Do not assume every codec/format supports every auxiliary stream.
-            let useDepth = self.photoOutput.isDepthDataDeliverySupported && self.photoOutput.isDepthDataDeliveryEnabled
+            // Depth and Portrait Effects matte delivery are requested only
+            // after the output has confirmed that they are enabled. Matte is
+            // additionally dependent on depth, as required by AVFoundation.
+            let useDepth = self.photoOutput.isDepthDataDeliverySupported
+                && self.photoOutput.isDepthDataDeliveryEnabled
             if useDepth {
                 settings.isDepthDataDeliveryEnabled = true
                 settings.embedsDepthDataInPhoto = true
             }
+
             let usePortraitMatte = useDepth
                 && self.photoOutput.isPortraitEffectsMatteDeliverySupported
                 && self.photoOutput.isPortraitEffectsMatteDeliveryEnabled
@@ -92,6 +92,7 @@ final class CameraModel: NSObject, ObservableObject {
                 settings.embedsPortraitEffectsMatteInPhoto = true
             }
 
+            DispatchQueue.main.async { self.isCapturing = true }
             self.photoOutput.capturePhoto(with: settings, delegate: self)
         }
     }
@@ -99,9 +100,6 @@ final class CameraModel: NSObject, ObservableObject {
     func setZoomFactor(_ requestedFactor: CGFloat) {
         let desired = min(max(requestedFactor, 1.0), displayMaxZoomFactor)
 
-        // Update the UI immediately, including on devices where AVFoundation
-        // exposes only a 1x hardware range. The preview layer supplies the
-        // remaining digital crop in that case.
         DispatchQueue.main.async { [weak self] in
             self?.zoomFactor = desired
         }
@@ -111,20 +109,18 @@ final class CameraModel: NSObject, ObservableObject {
             let hardwareZoom = min(desired, self.deviceMaxZoomFactor)
             do {
                 try device.lockForConfiguration()
-                if device.videoZoomFactor != hardwareZoom {
-                    device.videoZoomFactor = hardwareZoom
-                }
+                device.videoZoomFactor = hardwareZoom
                 device.unlockForConfiguration()
                 DispatchQueue.main.async {
                     self.deviceZoomFactor = hardwareZoom
                     if desired > self.deviceMaxZoomFactor + 0.01 {
-                        self.statusMessage = "Digital framing: hardware zoom unavailable"
+                        self.statusMessage = "2× software framing"
                     }
                 }
             } catch {
                 DispatchQueue.main.async {
                     self.deviceZoomFactor = 1.0
-                    self.statusMessage = "Digital framing: hardware zoom unavailable"
+                    self.statusMessage = "Zoom is temporarily unavailable"
                 }
             }
         }
@@ -170,17 +166,19 @@ final class CameraModel: NSObject, ObservableObject {
             }
 
             self.session.beginConfiguration()
-
             guard self.session.canSetSessionPreset(.photo) else {
                 self.session.commitConfiguration()
                 DispatchQueue.main.async { self.statusMessage = "Photo capture is unavailable" }
                 return
             }
             self.session.sessionPreset = .photo
+
             var depthAvailable = false
             var matteAvailable = false
 
             do {
+                // Use the physical wide-angle camera. The iPhone 13 has no
+                // rear telephoto; 2× is intentionally sensor crop/enlargement.
                 let camera = try self.makeRearCamera()
                 let input = try AVCaptureDeviceInput(device: camera)
                 guard self.session.canAddInput(input) else { throw CameraError.unavailable }
@@ -189,18 +187,21 @@ final class CameraModel: NSObject, ObservableObject {
 
                 guard self.session.canAddOutput(self.photoOutput) else { throw CameraError.unavailable }
                 self.session.addOutput(self.photoOutput)
-                self.photoOutput.maxPhotoQualityPrioritization = .quality
 
                 if self.photoOutput.isDepthDataDeliverySupported {
                     self.photoOutput.isDepthDataDeliveryEnabled = true
                 }
-                if self.photoOutput.isPortraitEffectsMatteDeliverySupported {
+                if self.photoOutput.isDepthDataDeliveryEnabled,
+                   self.photoOutput.isPortraitEffectsMatteDeliverySupported {
                     self.photoOutput.isPortraitEffectsMatteDeliveryEnabled = true
                 }
 
                 depthAvailable = self.photoOutput.isDepthDataDeliveryEnabled
                 matteAvailable = self.photoOutput.isPortraitEffectsMatteDeliveryEnabled
-                self.deviceMaxZoomFactor = max(1.0, min(camera.activeFormat.videoMaxZoomFactor, displayMaxZoomFactor))
+                self.deviceMaxZoomFactor = max(
+                    1.0,
+                    min(camera.activeFormat.videoMaxZoomFactor, displayMaxZoomFactor)
+                )
                 self.isSessionConfigured = true
             } catch {
                 self.session.commitConfiguration()
@@ -211,8 +212,6 @@ final class CameraModel: NSObject, ObservableObject {
                 return
             }
 
-            // Commit before starting. AVFoundation requires startRunning()
-            // to happen outside beginConfiguration()/commitConfiguration().
             self.session.commitConfiguration()
             self.session.startRunning()
 
@@ -228,9 +227,6 @@ final class CameraModel: NSObject, ObservableObject {
     }
 
     private func makeRearCamera() throws -> AVCaptureDevice {
-        if let dualWide = AVCaptureDevice.default(.builtInDualWideCamera, for: .video, position: .back) {
-            return dualWide
-        }
         if let wide = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) {
             return wide
         }
@@ -246,6 +242,7 @@ final class CameraModel: NSObject, ObservableObject {
                 DispatchQueue.main.async {
                     guard let self else { return }
                     self.isCapturing = false
+                    self.captureInFlight = false
                     if success {
                         self.statusMessage = "Portrait saved to Photos"
                     } else {
@@ -265,6 +262,7 @@ final class CameraModel: NSObject, ObservableObject {
                 } else {
                     DispatchQueue.main.async {
                         self.isCapturing = false
+                        self.captureInFlight = false
                         self.statusMessage = "Photos permission is required"
                     }
                 }
@@ -272,12 +270,16 @@ final class CameraModel: NSObject, ObservableObject {
         default:
             DispatchQueue.main.async {
                 self.isCapturing = false
+                self.captureInFlight = false
                 self.statusMessage = "Photos permission is required"
             }
         }
     }
 
     private func finishCapture(with message: String) {
+        sessionQueue.async { [weak self] in
+            self?.captureInFlight = false
+        }
         DispatchQueue.main.async { [weak self] in
             self?.isCapturing = false
             self?.statusMessage = message
