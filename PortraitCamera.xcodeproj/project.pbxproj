@@ -11,6 +11,8 @@
 		A10000010000000000000002 /* CameraModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000002 /* CameraModel.swift */; };
 		A10000010000000000000003 /* CameraPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000003 /* CameraPreview.swift */; };
 		A10000010000000000000004 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000004 /* ContentView.swift */; };
+		A10000010000000000000005 /* CamProSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000006 /* CamProSettings.swift */; };
+		A10000010000000000000006 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000007 /* SettingsView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -20,6 +22,8 @@
 		A20000010000000000000003 /* CameraPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraPreview.swift; sourceTree = "<group>"; };
 		A20000010000000000000004 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		A20000010000000000000005 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A20000010000000000000006 /* CamProSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CamProSettings.swift; sourceTree = "<group>"; };
+		A20000010000000000000007 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -45,9 +49,10 @@
 		};
 		A40000010000000000000002 /* App */ = {
 			isa = PBXGroup;
-			children = (
-				A20000010000000000000001 /* PortraitCameraApp.swift */,
-			);
+				children = (
+					A20000010000000000000001 /* PortraitCameraApp.swift */,
+					A20000010000000000000006 /* CamProSettings.swift */,
+				);
 			path = PortraitCamera/App;
 			sourceTree = "<group>";
 		};
@@ -62,9 +67,10 @@
 		};
 		A40000010000000000000004 /* UI */ = {
 			isa = PBXGroup;
-			children = (
-				A20000010000000000000004 /* ContentView.swift */,
-			);
+				children = (
+					A20000010000000000000004 /* ContentView.swift */,
+					A20000010000000000000007 /* SettingsView.swift */,
+				);
 			path = PortraitCamera/UI;
 			sourceTree = "<group>";
 		};
@@ -145,8 +151,10 @@
 				A10000010000000000000001 /* PortraitCameraApp.swift in Sources */,
 				A10000010000000000000002 /* CameraModel.swift in Sources */,
 				A10000010000000000000003 /* CameraPreview.swift in Sources */,
-				A10000010000000000000004 /* ContentView.swift in Sources */,
-			);
+					A10000010000000000000004 /* ContentView.swift in Sources */,
+					A10000010000000000000005 /* CamProSettings.swift in Sources */,
+					A10000010000000000000006 /* SettingsView.swift in Sources */,
+				);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
