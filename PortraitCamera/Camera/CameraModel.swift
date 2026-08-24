@@ -27,6 +27,16 @@ final class CameraModel: NSObject, ObservableObject {
     private var captureInFlight = false
     private var softwareZoomFactor: CGFloat = 1.0
     private var activeCaptureZoomFactor: CGFloat = 1.0
+    private var focusStackStage: FocusStackStage = .idle
+    private var focusStackSubjectPhoto: AVCapturePhoto?
+    private var focusStackBackgroundPhoto: AVCapturePhoto?
+    private var focusStackOriginalLensPosition: Float?
+
+    private enum FocusStackStage {
+        case idle
+        case capturingSubject
+        case capturingBackground
+    }
 
     func start() {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
@@ -68,38 +78,194 @@ final class CameraModel: NSObject, ObservableObject {
                 return
             }
             guard !self.captureInFlight else { return }
+
             self.captureInFlight = true
             self.activeCaptureZoomFactor = self.softwareZoomFactor
-
-            // A fresh, conservative settings object avoids unsupported
-            // combinations while still allowing AVFoundation to attach its
-            // native depth and Portrait Effects matte data.
-            let settings = AVCapturePhotoSettings()
-            if self.photoOutput.maxPhotoQualityPrioritization == .quality {
-                settings.photoQualityPrioritization = .quality
-            }
-            if self.photoOutput.supportedFlashModes.contains(.off) {
-                settings.flashMode = .off
-            }
-
-            let useDepth = self.photoOutput.isDepthDataDeliverySupported
-                && self.photoOutput.isDepthDataDeliveryEnabled
-            if useDepth {
-                settings.isDepthDataDeliveryEnabled = true
-                settings.embedsDepthDataInPhoto = true
-            }
-
-            let usePortraitMatte = useDepth
-                && self.photoOutput.isPortraitEffectsMatteDeliverySupported
-                && self.photoOutput.isPortraitEffectsMatteDeliveryEnabled
-            if usePortraitMatte {
-                settings.isPortraitEffectsMatteDeliveryEnabled = true
-                settings.embedsPortraitEffectsMatteInPhoto = true
-            }
-
+            self.focusStackStage = .idle
+            self.focusStackSubjectPhoto = nil
+            self.focusStackBackgroundPhoto = nil
+            self.focusStackOriginalLensPosition = nil
             DispatchQueue.main.async { self.isCapturing = true }
-            self.photoOutput.capturePhoto(with: settings, delegate: self)
+
+            if self.activeCaptureZoomFactor > 1.01 && self.canUseFocusStack {
+                self.beginFocusStackCapture()
+            } else {
+                self.captureSinglePhoto(includePortraitData: true)
+            }
         }
+    }
+
+    private var canUseFocusStack: Bool {
+        guard activeCaptureZoomFactor > 1.01,
+              let device = videoInput?.device,
+              device.isFocusModeSupported(.locked),
+              device.isLockingFocusWithCustomLensPositionSupported else {
+            return false
+        }
+        return photoOutput.isDepthDataDeliverySupported
+            && photoOutput.isDepthDataDeliveryEnabled
+            && photoOutput.isPortraitEffectsMatteDeliverySupported
+            && photoOutput.isPortraitEffectsMatteDeliveryEnabled
+    }
+
+    private func makePhotoSettings(includePortraitData: Bool) -> AVCapturePhotoSettings {
+        let settings = AVCapturePhotoSettings()
+        if photoOutput.maxPhotoQualityPrioritization == .quality {
+            settings.photoQualityPrioritization = .quality
+        }
+        if photoOutput.supportedFlashModes.contains(.off) {
+            settings.flashMode = .off
+        }
+
+        let useDepth = includePortraitData
+            && photoOutput.isDepthDataDeliverySupported
+            && photoOutput.isDepthDataDeliveryEnabled
+        if useDepth {
+            settings.isDepthDataDeliveryEnabled = true
+            settings.embedsDepthDataInPhoto = true
+        }
+
+        let usePortraitMatte = useDepth
+            && photoOutput.isPortraitEffectsMatteDeliverySupported
+            && photoOutput.isPortraitEffectsMatteDeliveryEnabled
+        if usePortraitMatte {
+            settings.isPortraitEffectsMatteDeliveryEnabled = true
+            settings.embedsPortraitEffectsMatteInPhoto = true
+        }
+        return settings
+    }
+
+    private func captureSinglePhoto(includePortraitData: Bool) {
+        photoOutput.capturePhoto(
+            with: makePhotoSettings(includePortraitData: includePortraitData),
+            delegate: self
+        )
+    }
+
+    private func beginFocusStackCapture() {
+        guard let device = videoInput?.device else {
+            captureSinglePhoto(includePortraitData: true)
+            return
+        }
+
+        focusStackStage = .capturingSubject
+        focusStackOriginalLensPosition = device.lensPosition
+        captureSinglePhoto(includePortraitData: true)
+    }
+
+    private func beginBackgroundFocusCapture() {
+        guard let device = videoInput?.device,
+              device.isLockingFocusWithCustomLensPositionSupported else {
+            finishFocusStackUsingSubjectOnly()
+            return
+        }
+
+        focusStackStage = .capturingBackground
+        device.setFocusModeLocked(lensPosition: 1.0) { [weak self] _ in
+            self?.sessionQueue.asyncAfter(deadline: .now() + 0.10) { [weak self] in
+                guard let self else { return }
+                self.captureSinglePhoto(includePortraitData: false)
+            }
+        }
+    }
+
+    private func finishFocusStackUsingSubjectOnly() {
+        guard let subjectPhoto = focusStackSubjectPhoto else {
+            finishCapture(with: "Could not create the photo file")
+            return
+        }
+        let zoom = activeCaptureZoomFactor
+        let data = softwareZoomedFileData(for: subjectPhoto, factor: zoom)
+        restoreFocusAfterStack()
+        clearFocusStackState()
+        guard let data else {
+            finishCapture(with: "Could not create the photo file")
+            return
+        }
+        saveToPhotos(data: data, zoomFactor: zoom)
+    }
+
+    private func finishFocusStackCapture() {
+        guard let subjectPhoto = focusStackSubjectPhoto,
+              let backgroundPhoto = focusStackBackgroundPhoto else {
+            finishFocusStackUsingSubjectOnly()
+            return
+        }
+
+        let zoom = activeCaptureZoomFactor
+        let stackedImage = makeFocusStackImage(
+            subjectPhoto: subjectPhoto,
+            backgroundPhoto: backgroundPhoto
+        )
+        let data = softwareZoomedFileData(
+            for: subjectPhoto,
+            factor: zoom,
+            replacementImage: stackedImage
+        )
+        restoreFocusAfterStack()
+        clearFocusStackState()
+        guard let data else {
+            finishCapture(with: "Could not create the photo file")
+            return
+        }
+        saveToPhotos(data: data, zoomFactor: zoom)
+    }
+
+    private func restoreFocusAfterStack() {
+        guard let device = videoInput?.device,
+              let originalLensPosition = focusStackOriginalLensPosition else { return }
+        do {
+            try device.lockForConfiguration()
+            if device.isLockingFocusWithCustomLensPositionSupported {
+                device.lensPosition = originalLensPosition
+            }
+            if device.isFocusModeSupported(.continuousAutoFocus) {
+                device.focusMode = .continuousAutoFocus
+            }
+            device.unlockForConfiguration()
+        } catch {
+            // Focus restoration is best effort; the next tap-to-focus can still
+            // reconfigure the device through the existing focus path.
+        }
+    }
+
+    private func clearFocusStackState() {
+        focusStackStage = .idle
+        focusStackSubjectPhoto = nil
+        focusStackBackgroundPhoto = nil
+        focusStackOriginalLensPosition = nil
+    }
+
+    private func makeFocusStackImage(
+        subjectPhoto: AVCapturePhoto,
+        backgroundPhoto: AVCapturePhoto
+    ) -> CGImage? {
+        guard let subjectImage = subjectPhoto.cgImageRepresentation(),
+              let backgroundImage = backgroundPhoto.cgImageRepresentation(),
+              let matte = subjectPhoto.portraitEffectsMatte else {
+            return nil
+        }
+
+        let foreground = CIImage(cgImage: subjectImage)
+        let background = CIImage(cgImage: backgroundImage)
+        let matteImage = CIImage(cvPixelBuffer: matte.mattingImage)
+        guard foreground.extent.width > 0,
+              foreground.extent.height > 0,
+              matteImage.extent.width > 0,
+              matteImage.extent.height > 0 else { return nil }
+
+        let scaleX = foreground.extent.width / matteImage.extent.width
+        let scaleY = foreground.extent.height / matteImage.extent.height
+        let scaledMatte = matteImage
+            .transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
+            .cropped(to: foreground.extent)
+
+        guard let filter = CIFilter(name: "CIBlendWithMask") else { return nil }
+        filter.setValue(foreground, forKey: kCIInputImageKey)
+        filter.setValue(background, forKey: kCIInputBackgroundImageKey)
+        filter.setValue(scaledMatte, forKey: kCIInputMaskImageKey)
+        guard let result = filter.outputImage else { return nil }
+        return ciContext.createCGImage(result, from: foreground.extent)
     }
 
     func setZoomFactor(_ requestedFactor: CGFloat) {
@@ -280,9 +446,13 @@ final class CameraModel: NSObject, ObservableObject {
         }
     }
 
-    private func softwareZoomedFileData(for photo: AVCapturePhoto, factor: CGFloat) -> Data? {
+    private func softwareZoomedFileData(
+        for photo: AVCapturePhoto,
+        factor: CGFloat,
+        replacementImage: CGImage? = nil
+    ) -> Data? {
         guard factor > 1.01 else { return photo.fileDataRepresentation() }
-        guard let primaryImage = photo.cgImageRepresentation() else {
+        guard let primaryImage = replacementImage ?? photo.cgImageRepresentation() else {
             return photo.fileDataRepresentation()
         }
 
@@ -494,21 +664,40 @@ final class CameraModel: NSObject, ObservableObject {
 extension CameraModel: AVCapturePhotoCaptureDelegate {
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
         if let error {
-            finishCapture(with: error.localizedDescription)
+            if focusStackStage == .capturingBackground {
+                finishFocusStackUsingSubjectOnly()
+            } else {
+                clearFocusStackState()
+                finishCapture(with: error.localizedDescription)
+            }
             return
         }
 
-        let zoom = activeCaptureZoomFactor
-        guard let data = softwareZoomedFileData(for: photo, factor: zoom) else {
-            finishCapture(with: "Could not create the photo file")
-            return
-        }
+        switch focusStackStage {
+        case .capturingSubject:
+            guard photo.portraitEffectsMatte != nil else {
+                finishFocusStackUsingSubjectOnly()
+                return
+            }
+            focusStackSubjectPhoto = photo
+            beginBackgroundFocusCapture()
 
-        saveToPhotos(data: data, zoomFactor: zoom)
+        case .capturingBackground:
+            focusStackBackgroundPhoto = photo
+            finishFocusStackCapture()
+
+        case .idle:
+            let zoom = activeCaptureZoomFactor
+            guard let data = softwareZoomedFileData(for: photo, factor: zoom) else {
+                finishCapture(with: "Could not create the photo file")
+                return
+            }
+            saveToPhotos(data: data, zoomFactor: zoom)
+        }
     }
 
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishCaptureFor resolvedSettings: AVCaptureResolvedPhotoSettings, error: Error?) {
-        if let error {
+        if let error, focusStackStage == .idle {
             finishCapture(with: error.localizedDescription)
         }
     }
