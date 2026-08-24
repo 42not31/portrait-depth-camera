@@ -14,6 +14,11 @@ enum CaptureMode: String, CaseIterable, Identifiable {
     }
 }
 
+enum CamProTheme {
+    static let accent = Color(red: 0.18, green: 0.48, blue: 0.98)
+    static let accentMuted = Color(red: 0.18, green: 0.48, blue: 0.98).opacity(0.22)
+}
+
 final class CamProSettings: ObservableObject {
     @Published var showDepthIndicator: Bool {
         didSet { defaults.set(showDepthIndicator, forKey: Keys.showDepthIndicator) }
