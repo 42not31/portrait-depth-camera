@@ -81,12 +81,6 @@ struct ContentView: View {
         .onChange(of: settings.mirrorFrontCamera) { _, enabled in
             camera.setMirrorFrontCamera(enabled)
         }
-        .modifier(
-            HardwareCaptureEventsModifier(
-                camera: camera,
-                enabled: settings.hardwareCaptureActionsEnabled
-            )
-        )
         .sheet(isPresented: $showSettings) {
             SettingsView(settings: settings)
         }
@@ -237,9 +231,15 @@ struct ContentView: View {
                     session: camera.session,
                     zoomFactor: camera.zoomFactor,
                     deviceZoomFactor: camera.deviceZoomFactor,
-                    isMirrored: camera.cameraPosition == .front && settings.mirrorFrontCamera,
                     // The interface stays portrait-locked. Saved output follows physical orientation.
                     videoOrientation: .portrait,
+                    isMirrored: camera.cameraPosition == .front && settings.mirrorFrontCamera,
+                    hardwareEventsEnabled: settings.hardwareCaptureActionsEnabled
+                        && camera.isConfigured
+                        && camera.isRunning
+                        && !camera.isCapturing,
+                    onPrimaryCapture: { camera.capturePhoto() },
+                    onSecondaryCapture: { camera.advanceZoom() },
                     onTap: { viewPoint, devicePoint in
                         guard !camera.manualControlsEnabled else { return }
                         camera.focus(at: devicePoint)
@@ -581,30 +581,6 @@ struct ContentView: View {
             in: RoundedRectangle(cornerRadius: 24, style: .continuous)
         )
         .padding(28)
-    }
-}
-
-private struct HardwareCaptureEventsModifier: ViewModifier {
-    let camera: CameraModel
-    let enabled: Bool
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if #available(iOS 18.0, *) {
-            content.onCameraCaptureEvent(
-                isEnabled: enabled && camera.isRunning && !camera.isCapturing,
-                primaryAction: { event in
-                    guard event.phase == .ended else { return }
-                    camera.capturePhoto()
-                },
-                secondaryAction: { event in
-                    guard event.phase == .ended else { return }
-                    camera.advanceZoom()
-                }
-            )
-        } else {
-            content
-        }
     }
 }
 
