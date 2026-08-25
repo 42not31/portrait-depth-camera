@@ -9,9 +9,6 @@ struct CameraPreview: UIViewRepresentable {
     let deviceZoomFactor: CGFloat
     let videoOrientation: AVCaptureVideoOrientation
     let isMirrored: Bool
-    let hardwareEventsEnabled: Bool
-    let onPrimaryCapture: () -> Void
-    let onSecondaryCapture: () -> Void
     let onTap: (CGPoint, CGPoint) -> Void
 
     func makeUIView(context: Context) -> PreviewView {
@@ -20,11 +17,6 @@ struct CameraPreview: UIViewRepresentable {
         view.onTap = onTap
         view.setVideoOrientation(videoOrientation)
         view.setMirrored(isMirrored)
-        view.setHardwareCaptureHandlers(
-            enabled: hardwareEventsEnabled,
-            primary: onPrimaryCapture,
-            secondary: onSecondaryCapture
-        )
         view.setDigitalZoom(max(1.0, zoomFactor / max(deviceZoomFactor, 1.0)))
         return view
     }
@@ -34,11 +26,6 @@ struct CameraPreview: UIViewRepresentable {
         view.onTap = onTap
         view.setVideoOrientation(videoOrientation)
         view.setMirrored(isMirrored)
-        view.setHardwareCaptureHandlers(
-            enabled: hardwareEventsEnabled,
-            primary: onPrimaryCapture,
-            secondary: onSecondaryCapture
-        )
         view.setDigitalZoom(max(1.0, zoomFactor / max(deviceZoomFactor, 1.0)))
     }
 }
@@ -46,9 +33,6 @@ struct CameraPreview: UIViewRepresentable {
 final class PreviewView: UIView {
     private let previewLayer = AVCaptureVideoPreviewLayer()
     var onTap: ((CGPoint, CGPoint) -> Void)?
-    private var primaryCaptureAction: (() -> Void)?
-    private var secondaryCaptureAction: (() -> Void)?
-
     var videoPreviewLayer: AVCaptureVideoPreviewLayer {
         previewLayer
     }
@@ -89,19 +73,6 @@ final class PreviewView: UIView {
         guard let connection = previewLayer.connection,
               connection.isVideoMirroringSupported else { return }
         connection.isVideoMirrored = mirrored
-    }
-
-    func setHardwareCaptureHandlers(
-        enabled _: Bool,
-        primary: @escaping () -> Void,
-        secondary: @escaping () -> Void
-    ) {
-        // Hardware capture-event interaction is temporarily disabled for the
-        // recovery build while validating launch stability on iOS 27 beta.
-        // The actions remain stored so the feature can be restored after the
-        // app is confirmed stable on the physical device.
-        primaryCaptureAction = primary
-        secondaryCaptureAction = secondary
     }
 
     func setDigitalZoom(_ factor: CGFloat) {
