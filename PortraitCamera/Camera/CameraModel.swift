@@ -94,7 +94,7 @@ final class CameraModel: NSObject, ObservableObject {
         guard isConfigured, isRunning, !isCapturing else { return }
         let requestedMode = captureMode
         let requestedAspectRatio = photoAspectRatio
-        let requestedFlashMode = requestedMode == .photo ? photoFlashMode : .off
+        let requestedFlashMode = photoFlashMode
 
         sessionQueue.async { [weak self] in
             guard let self else { return }
@@ -225,7 +225,6 @@ final class CameraModel: NSObject, ObservableObject {
     }
 
     func setPhotoFlashMode(_ mode: PhotoFlashMode) {
-        guard captureMode == .photo else { return }
         DispatchQueue.main.async { [weak self] in self?.photoFlashMode = mode }
     }
 
@@ -235,7 +234,6 @@ final class CameraModel: NSObject, ObservableObject {
     }
 
     func setManualControlsEnabled(_ enabled: Bool) {
-        guard captureMode == .photo else { return }
         sessionQueue.async { [weak self] in
             guard let self, self.isSessionConfigured, let device = self.videoInput?.device else { return }
             do {
@@ -266,7 +264,7 @@ final class CameraModel: NSObject, ObservableObject {
     func setManualFocusPosition(_ position: Float) {
         let clamped = min(max(position, 0), 1)
         DispatchQueue.main.async { [weak self] in self?.manualFocusPosition = clamped }
-        guard captureMode == .photo, manualControlsEnabled else { return }
+        guard manualControlsEnabled else { return }
         sessionQueue.async { [weak self] in
             guard let self, self.isSessionConfigured, let device = self.videoInput?.device,
                   device.isLockingFocusWithCustomLensPositionSupported else { return }
@@ -283,7 +281,7 @@ final class CameraModel: NSObject, ObservableObject {
     func setExposureBias(_ bias: Float) {
         let clamped = min(max(bias, -2.0), 2.0)
         DispatchQueue.main.async { [weak self] in self?.exposureBias = clamped }
-        guard captureMode == .photo, manualControlsEnabled else { return }
+        guard manualControlsEnabled else { return }
         sessionQueue.async { [weak self] in
             guard let self, self.isSessionConfigured, let device = self.videoInput?.device,
                   device.minExposureTargetBias < device.maxExposureTargetBias else { return }
@@ -316,7 +314,7 @@ final class CameraModel: NSObject, ObservableObject {
     }
 
     func focus(at devicePoint: CGPoint) {
-        if captureMode == .photo && manualControlsEnabled { return }
+        if manualControlsEnabled { return }
         let point = CGPoint(
             x: min(max(devicePoint.x, 0), 1),
             y: min(max(devicePoint.y, 0), 1)
