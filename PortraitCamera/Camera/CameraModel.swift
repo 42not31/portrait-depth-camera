@@ -1,5 +1,4 @@
 import AVFoundation
-import CoreImage
 import ImageIO
 import Photos
 import SwiftUI
@@ -18,7 +17,6 @@ final class CameraModel: NSObject, ObservableObject {
     @Published private(set) var cameraPosition: CameraPosition = .back
     @Published private(set) var photoLens: PhotoLens = .wide
     @Published private(set) var photoFlashMode: PhotoFlashMode = .off
-    @Published private(set) var photoStyle: PhotoStyle = .standard
     @Published private(set) var mirrorFrontCamera = true
     @Published private(set) var photoAspectRatio: PhotoAspectRatio = .fourThree
     @Published private(set) var manualControlsEnabled = false
@@ -34,7 +32,6 @@ final class CameraModel: NSObject, ObservableObject {
 
     private let sessionQueue = DispatchQueue(label: "com.privateportrait.camera.session")
     private let photoOutput = AVCapturePhotoOutput()
-    private let ciContext = CIContext()
     private var videoInput: AVCaptureDeviceInput?
     private let maxPhotoSoftwareZoomFactor: CGFloat = 5.0
     private var isSessionConfigured = false
@@ -42,7 +39,6 @@ final class CameraModel: NSObject, ObservableObject {
     private var softwareZoomFactor: CGFloat = 1.0
     private var activeCaptureZoomFactor: CGFloat = 1.0
     private var activeCaptureMode: CaptureMode = .portrait
-    private var activeCaptureStyle: PhotoStyle = .standard
     private var activeCaptureAspectRatio: PhotoAspectRatio = .fourThree
     private var activeCaptureFlashMode: PhotoFlashMode = .off
     private var activeVideoOrientation: AVCaptureVideoOrientation = .portrait
@@ -100,7 +96,6 @@ final class CameraModel: NSObject, ObservableObject {
         let requestedMode = captureMode
         let requestedAspectRatio = photoAspectRatio
         let requestedFlashMode = photoFlashMode
-        let requestedStyle = photoStyle
 
         sessionQueue.async { [weak self] in
             guard let self else { return }
@@ -118,7 +113,6 @@ final class CameraModel: NSObject, ObservableObject {
             self.applyVideoOrientation()
             self.activeCaptureZoomFactor = self.softwareZoomFactor
             self.activeCaptureMode = requestedMode
-            self.activeCaptureStyle = requestedStyle
             self.activeCaptureAspectRatio = requestedAspectRatio
             self.activeCaptureFlashMode = requestedFlashMode
             DispatchQueue.main.async { self.isCapturing = true }
@@ -234,11 +228,6 @@ final class CameraModel: NSObject, ObservableObject {
 
     func setPhotoFlashMode(_ mode: PhotoFlashMode) {
         DispatchQueue.main.async { [weak self] in self?.photoFlashMode = mode }
-    }
-
-    func setPhotoStyle(_ style: PhotoStyle) {
-        guard captureMode == .photo else { return }
-        DispatchQueue.main.async { [weak self] in self?.photoStyle = style }
     }
 
     func setMirrorFrontCamera(_ enabled: Bool) {
@@ -673,12 +662,10 @@ final class CameraModel: NSObject, ObservableObject {
         for photo: AVCapturePhoto,
         factor: CGFloat,
         includePortraitData: Bool,
-        aspectRatio: PhotoAspectRatio,
-        style: PhotoStyle
+        aspectRatio: PhotoAspectRatio
     ) -> Data? {
         guard factor > 1.01
-            || aspectRatio != .fourThree
-            || (!includePortraitData && style != .standard) else {
+            || aspectRatio != .fourThree else {
             return includePortraitData
                 ? (portraitEnabledFileData(for: photo) ?? photo.fileDataRepresentation())
                 : photo.fileDataRepresentation()
@@ -753,9 +740,7 @@ final class CameraModel: NSObject, ObservableObject {
             }
         }
 
-        let outputImage = includePortraitData
-            ? croppedImage
-            : styledImage(croppedImage, style: style) ?? croppedImage
+        let outputImage = croppedImage
         let croppedMetadata = croppedMetadata(
             from: photo.metadata,
             width: outputImage.width,
@@ -778,62 +763,6 @@ final class CameraModel: NSObject, ObservableObject {
                 : photo.fileDataRepresentation()
         }
         return croppedData
-    }
-
-    private func styledImage(_ image: CGImage, style: PhotoStyle) -> CGImage? {
-        guard style != .standard else { return image }
-        let input = CIImage(cgImage: image)
-        let output: CIImage
-        switch style {
-        case .standard:
-            return image
-        case .richContrast:
-            output = input.applyingFilter(
-                "CIColorControls",
-                parameters: [
-                    kCIInputContrastKey: 1.14,
-                    kCIInputSaturationKey: 1.03,
-                    kCIInputBrightnessKey: 0.01
-                ]
-            )
-        case .vibrant:
-            output = input.applyingFilter(
-                "CIColorControls",
-                parameters: [
-                    kCIInputContrastKey: 1.06,
-                    kCIInputSaturationKey: 1.18,
-                    kCIInputBrightnessKey: 0.01
-                ]
-            )
-        case .warm:
-            output = input
-                .applyingFilter(
-                    "CITemperatureAndTint",
-                    parameters: [
-                        "inputNeutral": CIVector(x: 6500, y: 0),
-                        "inputTargetNeutral": CIVector(x: 5900, y: 0)
-                    ]
-                )
-                .applyingFilter(
-                    "CIColorControls",
-                    parameters: [kCIInputSaturationKey: 1.06]
-                )
-        case .dramatic:
-            output = input
-                .applyingFilter(
-                    "CIColorControls",
-                    parameters: [
-                        kCIInputContrastKey: 1.22,
-                        kCIInputSaturationKey: 0.92,
-                        kCIInputBrightnessKey: -0.015
-                    ]
-                )
-                .applyingFilter(
-                    "CIVignette",
-                    parameters: [kCIInputIntensityKey: 0.18, kCIInputRadiusKey: 1.5]
-                )
-        }
-        return ciContext.createCGImage(output, from: output.extent)
     }
 
     private func portraitEnabledFileData(for photo: AVCapturePhoto) -> Data? {
@@ -1069,8 +998,7 @@ extension CameraModel: AVCapturePhotoCaptureDelegate {
             for: photo,
             factor: zoom,
             includePortraitData: includePortraitData,
-            aspectRatio: aspectRatio,
-            style: includePortraitData ? .standard : activeCaptureStyle
+            aspectRatio: aspectRatio
         ) else {
             finishCapture(with: "Could not create the photo file")
             return
