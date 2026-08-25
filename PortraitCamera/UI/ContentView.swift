@@ -134,24 +134,6 @@ struct ContentView: View {
                 }
                 .tint(CamProTheme.accent)
                 .accessibilityLabel("Photo aspect ratio")
-
-                Menu {
-                    ForEach(PhotoStyle.allCases) { style in
-                        Button {
-                            camera.setPhotoStyle(style)
-                        } label: {
-                            if camera.photoStyle == style {
-                                Label(style.title, systemImage: "checkmark")
-                            } else {
-                                Text(style.title)
-                            }
-                        }
-                    }
-                } label: {
-                    HeaderTextButton(title: camera.photoStyle.shortTitle)
-                }
-                .tint(CamProTheme.accent)
-                .accessibilityLabel("Photographic Style")
             }
 
             Button {
@@ -236,12 +218,6 @@ struct ContentView: View {
                             // The interface stays portrait-locked. Saved output follows physical orientation.
                             videoOrientation: .portrait,
                             isMirrored: camera.cameraPosition == .front && settings.mirrorFrontCamera,
-                            hardwareEventsEnabled: settings.hardwareCaptureActionsEnabled
-                                && camera.isConfigured
-                                && camera.isRunning
-                                && !camera.isCapturing,
-                            onPrimaryCapture: { camera.capturePhoto() },
-                            onSecondaryCapture: { camera.advanceZoom() },
                             onTap: { viewPoint, devicePoint in
                                 guard !camera.manualControlsEnabled else { return }
                                 camera.focus(at: devicePoint)
