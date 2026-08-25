@@ -15,7 +15,10 @@ struct ContentView: View {
     @State private var bottomSafeAreaInset: CGFloat = 0
 
     private var zoomPresets: [CGFloat] {
-        camera.captureMode == .photo ? [1.0, 2.0, 3.0, 4.0, 5.0] : [1.0, 2.0]
+        if camera.cameraPosition == .front {
+            return camera.captureMode == .portrait ? [1.0, 1.5] : [1.0, 1.5, 2.0]
+        }
+        return camera.captureMode == .photo ? [1.0, 2.0, 3.0, 4.0, 5.0] : [1.0, 2.0]
     }
 
     private var isFullBleedPhoto: Bool {
@@ -32,7 +35,9 @@ struct ContentView: View {
     }
 
     private var showsPhotoFocus: Bool {
-        camera.captureMode == .photo && camera.photoLens == .wide
+        camera.captureMode == .photo
+            && camera.cameraPosition == .back
+            && camera.photoLens == .wide
     }
 
     var body: some View {
@@ -67,11 +72,21 @@ struct ContentView: View {
             }
         }
         .task {
+            camera.setMirrorFrontCamera(settings.mirrorFrontCamera)
             camera.start()
         }
         .onDisappear {
             camera.stop()
         }
+        .onChange(of: settings.mirrorFrontCamera) { _, enabled in
+            camera.setMirrorFrontCamera(enabled)
+        }
+        .modifier(
+            HardwareCaptureEventsModifier(
+                camera: camera,
+                enabled: settings.hardwareCaptureActionsEnabled
+            )
+        )
         .sheet(isPresented: $showSettings) {
             SettingsView(settings: settings)
         }
@@ -125,7 +140,40 @@ struct ContentView: View {
                 }
                 .tint(CamProTheme.accent)
                 .accessibilityLabel("Photo aspect ratio")
+
+                Menu {
+                    ForEach(PhotoStyle.allCases) { style in
+                        Button {
+                            camera.setPhotoStyle(style)
+                        } label: {
+                            if camera.photoStyle == style {
+                                Label(style.title, systemImage: "checkmark")
+                            } else {
+                                Text(style.title)
+                            }
+                        }
+                    }
+                } label: {
+                    HeaderTextButton(title: camera.photoStyle.shortTitle)
+                }
+                .tint(CamProTheme.accent)
+                .accessibilityLabel("Photographic Style")
             }
+
+            Button {
+                camera.setCameraPosition(
+                    camera.cameraPosition == .back ? .front : .back
+                )
+            } label: {
+                Image(systemName: "camera.rotate")
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.94))
+                    .frame(width: 44, height: 44)
+                    .background(Color.white.opacity(0.11), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!camera.isConfigured || camera.isCapturing)
+            .accessibilityLabel("Switch camera")
 
             Button {
                 showSettings = true
@@ -189,6 +237,7 @@ struct ContentView: View {
                     session: camera.session,
                     zoomFactor: camera.zoomFactor,
                     deviceZoomFactor: camera.deviceZoomFactor,
+                    isMirrored: camera.cameraPosition == .front && settings.mirrorFrontCamera,
                     // The interface stays portrait-locked. Saved output follows physical orientation.
                     videoOrientation: .portrait,
                     onTap: { viewPoint, devicePoint in
@@ -296,7 +345,7 @@ struct ContentView: View {
             zoomButton
 
             HStack {
-                if camera.captureMode == .photo {
+                if camera.captureMode == .photo && camera.cameraPosition == .back {
                     lensToggle
                 } else {
                     Color.clear.frame(width: 112, height: 44)
@@ -380,11 +429,7 @@ struct ContentView: View {
     }
 
     private func advanceZoom() {
-        let currentIndex = zoomPresets.firstIndex {
-            abs($0 - camera.zoomFactor) < 0.08
-        } ?? 0
-        let nextIndex = (currentIndex + 1) % zoomPresets.count
-        camera.setZoomFactor(zoomPresets[nextIndex])
+        camera.advanceZoom()
     }
 
     private var captureRow: some View {
@@ -536,6 +581,30 @@ struct ContentView: View {
             in: RoundedRectangle(cornerRadius: 24, style: .continuous)
         )
         .padding(28)
+    }
+}
+
+private struct HardwareCaptureEventsModifier: ViewModifier {
+    let camera: CameraModel
+    let enabled: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.onCameraCaptureEvent(
+                isEnabled: enabled && camera.isRunning && !camera.isCapturing,
+                primaryAction: { event in
+                    guard event.phase == .ended else { return }
+                    camera.capturePhoto()
+                },
+                secondaryAction: { event in
+                    guard event.phase == .ended else { return }
+                    camera.advanceZoom()
+                }
+            )
+        } else {
+            content
+        }
     }
 }
 
