@@ -8,57 +8,69 @@ struct ContentView: View {
     @State private var focusPoint: CGPoint?
     @State private var focusAnimationID = UUID()
     @State private var showSettings = false
+    @State private var showManualPanel = false
 
     private var zoomPresets: [CGFloat] {
         camera.captureMode == .photo ? [1.0, 2.0, 3.0, 4.0, 5.0] : [1.0, 2.0]
     }
 
+    private var isFullBleedPhoto: Bool {
+        camera.captureMode == .photo && camera.photoAspectRatio == .sixteenNine
+    }
+
+    private var previewAspectRatio: CGFloat {
+        camera.captureMode == .photo
+            ? 1.0 / camera.photoAspectRatio.value
+            : 3.0 / 4.0
+    }
+
     var body: some View {
-        GeometryReader { proxy in
-            ZStack {
-                Color.black.ignoresSafeArea()
+        ZStack {
+            Color.black.ignoresSafeArea()
+            previewSurface
+                .ignoresSafeArea()
 
-                VStack(spacing: 0) {
-                    header
+            VStack(spacing: 0) {
+                header
+                Spacer(minLength: 0)
+            }
 
-                    ZStack(alignment: .bottom) {
-                        preview
-
-                        if camera.captureMode == .photo && camera.manualControlsEnabled {
-                            compactManualPanel
-                                .padding(.horizontal, 18)
-                                .padding(.bottom, 18)
-                                .transition(.move(edge: .bottom).combined(with: .opacity))
-                        }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                    cameraDock
-                        .padding(.bottom, max(12, proxy.safeAreaInsets.bottom))
+            if showManualPanel {
+                VStack {
+                    Spacer(minLength: 0)
+                    manualPanel
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 198)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
+            }
 
-                if camera.permissionDenied {
-                    permissionCard
+            VStack(spacing: 0) {
+                Spacer(minLength: 0)
+                cameraDock
+            }
+
+            if camera.permissionDenied {
+                permissionCard
+            }
+
+            if let message = camera.statusMessage {
+                VStack {
+                    Spacer()
+                    Text(message)
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 12)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .padding(.bottom, 28)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
-
-                if let message = camera.statusMessage {
-                    VStack {
-                        Spacer()
-                        Text(message)
-                            .font(.system(size: 14, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 18)
-                            .padding(.vertical, 12)
-                            .background(.ultraThinMaterial, in: Capsule())
-                            .padding(.bottom, 28)
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
-                    }
-                    .allowsHitTesting(false)
-                    .onAppear {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
-                            if camera.statusMessage == message {
-                                withAnimation { camera.statusMessage = nil }
-                            }
+                .allowsHitTesting(false)
+                .onAppear {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
+                        if camera.statusMessage == message {
+                            withAnimation { camera.statusMessage = nil }
                         }
                     }
                 }
@@ -76,52 +88,36 @@ struct ContentView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text("CAMPRO")
-                    .font(.system(size: 15, weight: .bold, design: .rounded))
-                    .tracking(2.2)
-                    .foregroundStyle(.white)
-
-                if settings.showDepthIndicator {
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(camera.captureMode == .portrait && camera.depthCaptureAvailable ? CamProTheme.accent : .gray)
-                            .frame(width: 6, height: 6)
-                        Text(camera.captureMode == .portrait
-                             ? (camera.depthCaptureAvailable ? "DEPTH READY" : "STANDARD DEPTH")
-                             : "SINGLE FRAME PHOTO")
-                            .font(.system(size: 10, weight: .semibold, design: .rounded))
-                            .tracking(1.1)
-                            .foregroundStyle(.white.opacity(0.64))
-                    }
-                }
-            }
+        HStack(spacing: 8) {
+            Text("CAMPRO")
+                .font(.system(size: 15, weight: .bold, design: .rounded))
+                .tracking(2.2)
+                .foregroundStyle(.white)
 
             Spacer(minLength: 8)
 
-            if camera.captureMode == .photo {
-                Menu {
-                    ForEach(PhotoFlashMode.allCases) { mode in
-                        Button {
-                            camera.setPhotoFlashMode(mode)
-                        } label: {
-                            if camera.photoFlashMode == mode {
-                                Label(mode.title, systemImage: "checkmark")
-                            } else {
-                                Text(mode.title)
-                            }
+            Menu {
+                ForEach(PhotoFlashMode.allCases) { mode in
+                    Button {
+                        camera.setPhotoFlashMode(mode)
+                    } label: {
+                        if camera.photoFlashMode == mode {
+                            Label(mode.title, systemImage: "checkmark")
+                        } else {
+                            Text(mode.title)
                         }
                     }
-                } label: {
-                    topControlLabel(
-                        systemImage: "bolt.fill",
-                        title: camera.photoFlashMode.title
-                    )
                 }
-                .tint(CamProTheme.accent)
-                .accessibilityLabel("Flash mode")
+            } label: {
+                HeaderControl(
+                    systemImage: camera.photoFlashMode == .off ? "bolt.slash.fill" : "bolt.fill",
+                    title: camera.photoFlashMode.title
+                )
+            }
+            .tint(CamProTheme.accent)
+            .accessibilityLabel("Flash mode")
 
+            if camera.captureMode == .photo {
                 Menu {
                     ForEach(PhotoAspectRatio.allCases) { ratio in
                         Button {
@@ -135,10 +131,7 @@ struct ContentView: View {
                         }
                     }
                 } label: {
-                    topControlLabel(
-                        systemImage: "aspectratio",
-                        title: camera.photoAspectRatio.title
-                    )
+                    HeaderControl(systemImage: "aspectratio", title: camera.photoAspectRatio.title)
                 }
                 .tint(CamProTheme.accent)
                 .accessibilityLabel("Photo aspect ratio")
@@ -156,70 +149,64 @@ struct ContentView: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Settings")
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 12)
-        .padding(.bottom, 12)
+        .padding(.horizontal, 18)
+        .padding(.top, 10)
+        .padding(.bottom, 10)
     }
 
-    private func topControlLabel(systemImage: String, title: String) -> some View {
-        HStack(spacing: 5) {
-            Image(systemName: systemImage)
-                .font(.system(size: 12, weight: .bold))
-            Text(title)
-                .font(.system(size: 11, weight: .bold, design: .rounded))
-        }
-        .foregroundStyle(.white)
-        .frame(minWidth: 48, minHeight: 40)
-        .padding(.horizontal, 4)
-        .background(Color.white.opacity(0.11), in: Capsule())
-    }
+    private var previewSurface: some View {
+        GeometryReader { proxy in
+            let availableWidth = isFullBleedPhoto ? proxy.size.width : max(proxy.size.width - 24, 0)
+            let previewWidth = isFullBleedPhoto
+                ? proxy.size.width
+                : min(availableWidth, proxy.size.height * previewAspectRatio)
+            let previewHeight = isFullBleedPhoto
+                ? proxy.size.height
+                : previewWidth / previewAspectRatio
 
-    private var preview: some View {
-        CameraPreview(
-            session: camera.session,
-            zoomFactor: camera.zoomFactor,
-            deviceZoomFactor: camera.deviceZoomFactor,
-            // The interface and preview stay portrait-locked. The camera model
-            // still applies the physical device orientation to the saved output.
-            videoOrientation: .portrait,
-            onTap: { viewPoint, devicePoint in
-                camera.focus(at: devicePoint)
-                focusPoint = viewPoint
-                focusAnimationID = UUID()
+            ZStack {
+                Color.black
+
+                CameraPreview(
+                    session: camera.session,
+                    zoomFactor: camera.zoomFactor,
+                    deviceZoomFactor: camera.deviceZoomFactor,
+                    // The UI stays portrait-locked. Saved output follows physical orientation.
+                    videoOrientation: .portrait,
+                    onTap: { viewPoint, devicePoint in
+                        camera.focus(at: devicePoint)
+                        focusPoint = viewPoint
+                        focusAnimationID = UUID()
+                    }
+                )
+                .overlay {
+                    if let focusPoint {
+                        FocusReticle()
+                            .id(focusAnimationID)
+                            .position(focusPoint)
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: isFullBleedPhoto ? 0 : 24, style: .continuous))
+                .frame(width: previewWidth, height: previewHeight)
+                .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
             }
-        )
-        .overlay {
-            if let focusPoint {
-                FocusReticle()
-                    .id(focusAnimationID)
-                    .position(focusPoint)
-            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .padding(.horizontal, 12)
-        .contentShape(Rectangle())
     }
 
     private var cameraDock: some View {
         VStack(spacing: 12) {
             modePicker
-
-            HStack(spacing: 10) {
-                if camera.captureMode == .photo {
-                    lensToggle
-                }
-
-                manualButton
-
-                Spacer(minLength: 0)
-
-                zoomButton
-            }
-            .padding(.horizontal, 20)
-
+            lowerControlRow
             captureRow
         }
         .padding(.top, 12)
+        .padding(.bottom, 12)
+        .background(
+            isFullBleedPhoto ? Color.black.opacity(0.18) : Color.black.opacity(0.88),
+            in: RoundedRectangle(cornerRadius: isFullBleedPhoto ? 0 : 28, style: .continuous)
+        )
+        .padding(.horizontal, isFullBleedPhoto ? 0 : 10)
     }
 
     private var modePicker: some View {
@@ -227,8 +214,12 @@ struct ContentView: View {
             ForEach(CaptureMode.allCases) { mode in
                 Button {
                     camera.setCaptureMode(mode)
+                    if mode == .portrait && showManualPanel == false {
+                        // Portrait uses the Depth button to open the shared panel.
+                        showManualPanel = false
+                    }
                 } label: {
-                    Text(mode.title.uppercased())
+                    Text(mode.title)
                         .font(.system(size: 13, weight: .bold, design: .rounded))
                         .tracking(0.6)
                         .foregroundStyle(camera.captureMode == mode ? .white : .white.opacity(0.68))
@@ -244,9 +235,32 @@ struct ContentView: View {
         }
         .padding(3)
         .background(Color.white.opacity(0.10), in: Capsule())
-        .padding(.horizontal, 20)
+        .padding(.horizontal, 18)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Capture mode")
+    }
+
+    private var lowerControlRow: some View {
+        ZStack {
+            zoomButton
+
+            HStack {
+                if camera.captureMode == .photo {
+                    lensToggle
+                } else {
+                    depthButton
+                }
+
+                Spacer(minLength: 0)
+
+                if camera.captureMode == .photo {
+                    manualButton
+                } else {
+                    Color.clear.frame(width: 88, height: 40)
+                }
+            }
+        }
+        .padding(.horizontal, 18)
     }
 
     private var lensToggle: some View {
@@ -273,49 +287,63 @@ struct ContentView: View {
         .background(Color.white.opacity(0.10), in: Capsule())
     }
 
+    private var zoomButton: some View {
+        Button {
+            advanceZoom()
+        } label: {
+            Text("\(camera.zoomFactor, specifier: "%.0f")×")
+                .font(.system(size: 14, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+                .frame(minWidth: 64, minHeight: 42)
+                .background(CamProTheme.accent, in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Zoom \(camera.zoomFactor, specifier: "%.0f") times; tap to change")
+    }
+
     private var manualButton: some View {
         Button {
             withAnimation(.easeOut(duration: 0.2)) {
-                camera.setManualControlsEnabled(!camera.manualControlsEnabled)
+                showManualPanel.toggle()
             }
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: "slider.vertical.3")
                     .font(.system(size: 13, weight: .bold))
-                Text(camera.manualControlsEnabled ? "MANUAL ON" : "MANUAL")
+                Text("MANUAL")
                     .font(.system(size: 11, weight: .bold, design: .rounded))
             }
-            .foregroundStyle(camera.manualControlsEnabled ? .white : .white.opacity(0.78))
+            .foregroundStyle(showManualPanel ? .white : .white.opacity(0.78))
             .frame(minHeight: 40)
             .padding(.horizontal, 12)
             .background(
-                camera.manualControlsEnabled ? CamProTheme.accent : Color.white.opacity(0.10),
+                showManualPanel ? CamProTheme.accent : Color.white.opacity(0.10),
                 in: Capsule()
             )
         }
         .buttonStyle(.plain)
-        .disabled(camera.captureMode != .photo)
-        .opacity(camera.captureMode == .photo ? 1 : 0.48)
-        .accessibilityLabel("Manual focus and exposure controls")
+        .accessibilityLabel("Open manual controls")
     }
 
-    private var zoomButton: some View {
+    private var depthButton: some View {
         Button {
-            advanceZoom()
-        } label: {
-            HStack(spacing: 5) {
-                Image(systemName: "plus.magnifyingglass")
-                    .font(.system(size: 12, weight: .bold))
-                Text("\(camera.zoomFactor, specifier: "%.0f")×")
-                    .font(.system(size: 13, weight: .bold, design: .rounded))
+            withAnimation(.easeOut(duration: 0.2)) {
+                showManualPanel.toggle()
             }
-            .foregroundStyle(.white)
-            .frame(minWidth: 62, minHeight: 40)
-            .padding(.horizontal, 4)
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "camera.aperture")
+                    .font(.system(size: 13, weight: .bold))
+                Text("DEPTH")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+            }
+            .foregroundStyle(.white.opacity(0.86))
+            .frame(minHeight: 40)
+            .padding(.horizontal, 12)
             .background(Color.white.opacity(0.10), in: Capsule())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Zoom \(camera.zoomFactor, specifier: "%.0f") times; tap to change")
+        .accessibilityLabel("Open portrait depth controls")
     }
 
     private func advanceZoom() {
@@ -378,29 +406,44 @@ struct ContentView: View {
         .padding(.horizontal, 28)
     }
 
-    private var compactManualPanel: some View {
-        VStack(spacing: 8) {
-            HStack {
-                Label("MANUAL", systemImage: "slider.vertical.3")
+    private var manualPanel: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 10) {
+                Label("MANUAL CONTROLS", systemImage: "slider.vertical.3")
                     .font(.system(size: 11, weight: .bold, design: .rounded))
                     .tracking(0.8)
                     .foregroundStyle(.white)
 
-                Spacer()
+                Spacer(minLength: 0)
+
+                Toggle("", isOn: Binding(
+                    get: { camera.manualControlsEnabled },
+                    set: { camera.setManualControlsEnabled($0) }
+                ))
+                .labelsHidden()
+                .tint(CamProTheme.accent)
+                .accessibilityLabel("Lock manual settings")
 
                 Button {
                     withAnimation(.easeOut(duration: 0.2)) {
-                        camera.setManualControlsEnabled(false)
+                        showManualPanel = false
                     }
                 } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(.white.opacity(0.8))
+                        .foregroundStyle(.white.opacity(0.78))
                         .frame(width: 32, height: 32)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Close manual controls")
             }
+
+            Text(camera.manualControlsEnabled
+                 ? "LOCKED · tap the switch to return to automatic"
+                 : "AUTOMATIC · enable the switch to lock these settings")
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white.opacity(0.62))
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             CompactSliderRow(
                 title: "FOCUS",
@@ -410,6 +453,8 @@ struct ContentView: View {
                 ),
                 range: 0...1
             )
+            .opacity(camera.manualControlsEnabled ? 1 : 0.52)
+            .disabled(!camera.manualControlsEnabled)
 
             CompactSliderRow(
                 title: "EV",
@@ -419,15 +464,33 @@ struct ContentView: View {
                 ),
                 range: -2...2
             )
+            .opacity(camera.manualControlsEnabled ? 1 : 0.52)
+            .disabled(!camera.manualControlsEnabled)
+
+            HStack(spacing: 10) {
+                ManualStatusItem(
+                    title: "FLASH",
+                    value: camera.photoFlashMode.title,
+                    systemImage: camera.photoFlashMode == .off ? "bolt.slash.fill" : "bolt.fill"
+                )
+
+                ManualStatusItem(
+                    title: "DEPTH",
+                    value: camera.captureMode == .portrait
+                        ? (camera.depthCaptureAvailable ? "READY" : "UNAVAILABLE")
+                        : "PHOTO OFF",
+                    systemImage: "camera.aperture"
+                )
+            }
         }
-        .padding(.horizontal, 13)
-        .padding(.vertical, 10)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .stroke(.white.opacity(0.18), lineWidth: 1)
         }
-        .shadow(color: .black.opacity(0.32), radius: 18, y: 8)
+        .shadow(color: .black.opacity(0.34), radius: 20, y: 8)
     }
 
     private var permissionCard: some View {
@@ -449,6 +512,47 @@ struct ContentView: View {
     }
 }
 
+private struct HeaderControl: View {
+    let systemImage: String
+    let title: String
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: systemImage)
+                .font(.system(size: 12, weight: .bold))
+            Text(title)
+                .font(.system(size: 10, weight: .bold, design: .rounded))
+        }
+        .foregroundStyle(.white)
+        .frame(minWidth: 48, minHeight: 40)
+        .padding(.horizontal, 4)
+        .background(Color.white.opacity(0.11), in: Capsule())
+    }
+}
+
+private struct ManualStatusItem: View {
+    let title: String
+    let value: String
+    let systemImage: String
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Image(systemName: systemImage)
+                .font(.system(size: 12, weight: .bold))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(.system(size: 9, weight: .bold, design: .rounded))
+                    .tracking(0.7)
+                Text(value)
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.66))
+            }
+        }
+        .foregroundStyle(.white.opacity(0.88))
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 private struct CompactSliderRow: View {
     let title: String
     @Binding var value: Double
@@ -460,7 +564,7 @@ private struct CompactSliderRow: View {
                 .font(.system(size: 10, weight: .bold, design: .rounded))
                 .tracking(0.8)
                 .foregroundStyle(.white.opacity(0.72))
-                .frame(width: 48, alignment: .leading)
+                .frame(width: 42, alignment: .leading)
 
             Slider(value: $value, in: range)
                 .tint(CamProTheme.accent)
