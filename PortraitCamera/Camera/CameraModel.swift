@@ -15,6 +15,12 @@ final class CameraModel: NSObject, ObservableObject {
     @Published private(set) var zoomFactor: CGFloat = 1.0
     @Published private(set) var deviceZoomFactor: CGFloat = 1.0
     @Published private(set) var captureMode: CaptureMode = .portrait
+    @Published private(set) var photoLens: PhotoLens = .wide
+    @Published private(set) var photoFlashMode: PhotoFlashMode = .off
+    @Published private(set) var photoAspectRatio: PhotoAspectRatio = .fourThree
+    @Published private(set) var manualControlsEnabled = false
+    @Published private(set) var manualFocusPosition: Float = 0.5
+    @Published private(set) var exposureBias: Float = 0.0
     @Published private(set) var videoOrientation: AVCaptureVideoOrientation = .portrait
     @Published private(set) var latestPhotoImage: UIImage?
     @Published private(set) var latestPhotoAssetIdentifier: String?
@@ -33,6 +39,8 @@ final class CameraModel: NSObject, ObservableObject {
     private var softwareZoomFactor: CGFloat = 1.0
     private var activeCaptureZoomFactor: CGFloat = 1.0
     private var activeCaptureMode: CaptureMode = .portrait
+    private var activeCaptureAspectRatio: PhotoAspectRatio = .fourThree
+    private var activeCaptureFlashMode: PhotoFlashMode = .off
     private var activeVideoOrientation: AVCaptureVideoOrientation = .portrait
     private var orientationObserver: NSObjectProtocol?
 
@@ -85,6 +93,8 @@ final class CameraModel: NSObject, ObservableObject {
     func capturePhoto() {
         guard isConfigured, isRunning, !isCapturing else { return }
         let requestedMode = captureMode
+        let requestedAspectRatio = photoAspectRatio
+        let requestedFlashMode = requestedMode == .photo ? photoFlashMode : .off
 
         sessionQueue.async { [weak self] in
             guard let self else { return }
@@ -102,17 +112,31 @@ final class CameraModel: NSObject, ObservableObject {
             self.applyVideoOrientation()
             self.activeCaptureZoomFactor = self.softwareZoomFactor
             self.activeCaptureMode = requestedMode
+            self.activeCaptureAspectRatio = requestedAspectRatio
+            self.activeCaptureFlashMode = requestedFlashMode
             DispatchQueue.main.async { self.isCapturing = true }
-            self.captureSinglePhoto(includePortraitData: requestedMode == .portrait)
+            self.captureSinglePhoto(
+                includePortraitData: requestedMode == .portrait,
+                flashMode: requestedFlashMode
+            )
         }
     }
 
-    private func makePhotoSettings(includePortraitData: Bool) -> AVCapturePhotoSettings {
+    private func makePhotoSettings(
+        includePortraitData: Bool,
+        flashMode: PhotoFlashMode
+    ) -> AVCapturePhotoSettings {
         let settings = AVCapturePhotoSettings()
         if photoOutput.maxPhotoQualityPrioritization == .quality {
             settings.photoQualityPrioritization = .quality
         }
-        if photoOutput.supportedFlashModes.contains(.off) {
+        let requestedFlash = flashMode.captureMode
+        if photoOutput.supportedFlashModes.contains(requestedFlash) {
+            settings.flashMode = requestedFlash
+            if requestedFlash == .on {
+                settings.isAutoStillImageStabilizationEnabled = false
+            }
+        } else if photoOutput.supportedFlashModes.contains(.off) {
             settings.flashMode = .off
         }
 
@@ -134,40 +158,141 @@ final class CameraModel: NSObject, ObservableObject {
         return settings
     }
 
-    private func captureSinglePhoto(includePortraitData: Bool) {
+    private func captureSinglePhoto(
+        includePortraitData: Bool,
+        flashMode: PhotoFlashMode
+    ) {
         photoOutput.capturePhoto(
-            with: makePhotoSettings(includePortraitData: includePortraitData),
+            with: makePhotoSettings(
+                includePortraitData: includePortraitData,
+                flashMode: flashMode
+            ),
             delegate: self
         )
     }
 
     func setCaptureMode(_ mode: CaptureMode) {
         sessionQueue.async { [weak self] in
-            guard let self, self.captureMode != mode else { return }
-            let portraitEnabled = mode == .portrait
+            guard let self, self.isSessionConfigured, self.captureMode != mode else { return }
+            do {
+                try self.replaceCameraInput(for: mode)
+                let portraitEnabled = mode == .portrait
 
-            self.session.beginConfiguration()
-            if self.photoOutput.isDepthDataDeliverySupported {
-                self.photoOutput.isDepthDataDeliveryEnabled = portraitEnabled
-            }
-            if portraitEnabled,
-               self.photoOutput.isDepthDataDeliveryEnabled,
-               self.photoOutput.isPortraitEffectsMatteDeliverySupported {
-                self.photoOutput.isPortraitEffectsMatteDeliveryEnabled = true
-            } else {
-                self.photoOutput.isPortraitEffectsMatteDeliveryEnabled = false
-            }
-            self.session.commitConfiguration()
+                self.session.beginConfiguration()
+                if self.photoOutput.isDepthDataDeliverySupported {
+                    self.photoOutput.isDepthDataDeliveryEnabled = portraitEnabled
+                }
+                if portraitEnabled,
+                   self.photoOutput.isDepthDataDeliveryEnabled,
+                   self.photoOutput.isPortraitEffectsMatteDeliverySupported {
+                    self.photoOutput.isPortraitEffectsMatteDeliveryEnabled = true
+                } else {
+                    self.photoOutput.isPortraitEffectsMatteDeliveryEnabled = false
+                }
+                self.session.commitConfiguration()
 
-            if mode == .portrait {
-                self.softwareZoomFactor = min(self.softwareZoomFactor, 2.0)
-            }
+                if mode == .portrait {
+                    self.softwareZoomFactor = min(self.softwareZoomFactor, 2.0)
+                }
 
-            DispatchQueue.main.async {
-                self.captureMode = mode
-                self.zoomFactor = self.softwareZoomFactor
-                self.depthCaptureAvailable = self.photoOutput.isDepthDataDeliveryEnabled
-                self.portraitMatteAvailable = self.photoOutput.isPortraitEffectsMatteDeliveryEnabled
+                DispatchQueue.main.async {
+                    self.captureMode = mode
+                    self.zoomFactor = self.softwareZoomFactor
+                    self.depthCaptureAvailable = self.photoOutput.isDepthDataDeliveryEnabled
+                    self.portraitMatteAvailable = self.photoOutput.isPortraitEffectsMatteDeliveryEnabled
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.statusMessage = mode == .photo
+                        ? "Photo lens is unavailable"
+                        : "Portrait camera is unavailable"
+                }
+            }
+        }
+    }
+
+    func setPhotoLens(_ lens: PhotoLens) {
+        guard captureMode == .photo else { return }
+        sessionQueue.async { [weak self] in
+            guard let self, self.isSessionConfigured, self.photoLens != lens else { return }
+            do {
+                try self.replaceCameraInput(for: .photo, lens: lens)
+                DispatchQueue.main.async { self.photoLens = lens }
+            } catch {
+                DispatchQueue.main.async { self.statusMessage = "This lens is unavailable" }
+            }
+        }
+    }
+
+    func setPhotoFlashMode(_ mode: PhotoFlashMode) {
+        guard captureMode == .photo else { return }
+        DispatchQueue.main.async { [weak self] in self?.photoFlashMode = mode }
+    }
+
+    func setPhotoAspectRatio(_ ratio: PhotoAspectRatio) {
+        guard captureMode == .photo else { return }
+        DispatchQueue.main.async { [weak self] in self?.photoAspectRatio = ratio }
+    }
+
+    func setManualControlsEnabled(_ enabled: Bool) {
+        guard captureMode == .photo else { return }
+        sessionQueue.async { [weak self] in
+            guard let self, self.isSessionConfigured, let device = self.videoInput?.device else { return }
+            do {
+                try device.lockForConfiguration()
+                if enabled {
+                    if device.isLockingFocusWithCustomLensPositionSupported {
+                        device.setFocusModeLocked(lensPosition: self.manualFocusPosition, completionHandler: nil)
+                    }
+                    if device.isExposureTargetBiasAdjustable {
+                        device.setExposureTargetBias(self.exposureBias, completionHandler: nil)
+                    }
+                } else {
+                    if device.isFocusModeSupported(.continuousAutoFocus) {
+                        device.focusMode = .continuousAutoFocus
+                    }
+                    if device.isExposureModeSupported(.continuousAutoExposure) {
+                        device.exposureMode = .continuousAutoExposure
+                    }
+                }
+                device.unlockForConfiguration()
+                DispatchQueue.main.async { self.manualControlsEnabled = enabled }
+            } catch {
+                DispatchQueue.main.async { self.statusMessage = "Manual controls are unavailable" }
+            }
+        }
+    }
+
+    func setManualFocusPosition(_ position: Float) {
+        let clamped = min(max(position, 0), 1)
+        DispatchQueue.main.async { [weak self] in self?.manualFocusPosition = clamped }
+        guard captureMode == .photo, manualControlsEnabled else { return }
+        sessionQueue.async { [weak self] in
+            guard let self, self.isSessionConfigured, let device = self.videoInput?.device,
+                  device.isLockingFocusWithCustomLensPositionSupported else { return }
+            do {
+                try device.lockForConfiguration()
+                device.setFocusModeLocked(lensPosition: clamped, completionHandler: nil)
+                device.unlockForConfiguration()
+            } catch {
+                DispatchQueue.main.async { self.statusMessage = "Manual focus is unavailable" }
+            }
+        }
+    }
+
+    func setExposureBias(_ bias: Float) {
+        let clamped = min(max(bias, -2.0), 2.0)
+        DispatchQueue.main.async { [weak self] in self?.exposureBias = clamped }
+        guard captureMode == .photo, manualControlsEnabled else { return }
+        sessionQueue.async { [weak self] in
+            guard let self, self.isSessionConfigured, let device = self.videoInput?.device,
+                  device.isExposureTargetBiasAdjustable else { return }
+            do {
+                try device.lockForConfiguration()
+                device.setExposureTargetBias(clamped, completionHandler: nil)
+                device.unlockForConfiguration()
+            } catch {
+                DispatchQueue.main.async { self.statusMessage = "Manual exposure is unavailable" }
             }
         }
     }
@@ -191,6 +316,7 @@ final class CameraModel: NSObject, ObservableObject {
     }
 
     func focus(at devicePoint: CGPoint) {
+        if captureMode == .photo && manualControlsEnabled { return }
         let point = CGPoint(
             x: min(max(devicePoint.x, 0), 1),
             y: min(max(devicePoint.y, 0), 1)
@@ -275,7 +401,7 @@ final class CameraModel: NSObject, ObservableObject {
                 // The iPhone 13 rear dual-wide virtual camera is required for
                 // genuine dual-camera disparity/depth capture. Zoom itself is
                 // deliberately not configured on this device input.
-                let camera = try self.makeRearCamera()
+                let camera = try self.makeCamera(for: .portrait)
                 let input = try AVCaptureDeviceInput(device: camera)
                 guard self.session.canAddInput(input) else { throw CameraError.unavailable }
                 self.session.addInput(input)
@@ -320,11 +446,34 @@ final class CameraModel: NSObject, ObservableObject {
         }
     }
 
-    private func makeRearCamera() throws -> AVCaptureDevice {
-        if let dualWide = AVCaptureDevice.default(.builtInDualWideCamera, for: .video, position: .back) {
+    private func makeCamera(for mode: CaptureMode, lens: PhotoLens? = nil) throws -> AVCaptureDevice {
+        if mode == .portrait,
+           let dualWide = AVCaptureDevice.default(.builtInDualWideCamera, for: .video, position: .back) {
             return dualWide
         }
+
+        let requestedType = lens?.deviceType ?? photoLens.deviceType
+        if let camera = AVCaptureDevice.default(requestedType, for: .video, position: .back) {
+            return camera
+        }
         throw CameraError.unavailable
+    }
+
+    private func replaceCameraInput(for mode: CaptureMode, lens: PhotoLens? = nil) throws {
+        let camera = try makeCamera(for: mode, lens: lens)
+        let newInput = try AVCaptureDeviceInput(device: camera)
+        let oldInput = videoInput
+
+        session.beginConfiguration()
+        if let oldInput { session.removeInput(oldInput) }
+        guard session.canAddInput(newInput) else {
+            if let oldInput { session.addInput(oldInput) }
+            session.commitConfiguration()
+            throw CameraError.unavailable
+        }
+        session.addInput(newInput)
+        session.commitConfiguration()
+        videoInput = newInput
     }
 
     private func saveToPhotos(data: Data, zoomFactor: CGFloat) {
@@ -403,9 +552,10 @@ final class CameraModel: NSObject, ObservableObject {
     private func softwareZoomedFileData(
         for photo: AVCapturePhoto,
         factor: CGFloat,
-        includePortraitData: Bool
+        includePortraitData: Bool,
+        aspectRatio: PhotoAspectRatio
     ) -> Data? {
-        guard factor > 1.01 else {
+        guard factor > 1.01 || aspectRatio != .fourThree else {
             return includePortraitData
                 ? (portraitEnabledFileData(for: photo) ?? photo.fileDataRepresentation())
                 : photo.fileDataRepresentation()
@@ -416,13 +566,28 @@ final class CameraModel: NSObject, ObservableObject {
                 : photo.fileDataRepresentation()
         }
 
-        let cropSide = max(1.0 / factor, 0.05)
-        let cropOrigin = (1.0 - cropSide) / 2.0
+        let sourceAspectRatio = CGFloat(primaryImage.width) / CGFloat(primaryImage.height)
+        // Portrait keeps its proven central square crop. Photo mode alone
+        // applies the user-selected aspect ratio.
+        let targetAspectRatio = includePortraitData ? 1.0 : aspectRatio.value
+        var cropWidth = 1.0
+        var cropHeight = 1.0
+        if sourceAspectRatio > targetAspectRatio {
+            cropWidth = targetAspectRatio / sourceAspectRatio
+        } else if sourceAspectRatio < targetAspectRatio {
+            cropHeight = sourceAspectRatio / targetAspectRatio
+        }
+
+        let zoomScale = max(1.0 / factor, 0.05)
+        cropWidth *= zoomScale
+        cropHeight *= zoomScale
+        let cropOriginX = (1.0 - cropWidth) / 2.0
+        let cropOriginY = (1.0 - cropHeight) / 2.0
         let normalizedCrop = CGRect(
-            x: cropOrigin,
-            y: cropOrigin,
-            width: cropSide,
-            height: cropSide
+            x: cropOriginX,
+            y: cropOriginY,
+            width: cropWidth,
+            height: cropHeight
         )
         let cropRect = CGRect(
             x: CGFloat(primaryImage.width) * normalizedCrop.minX,
@@ -717,10 +882,12 @@ extension CameraModel: AVCapturePhotoCaptureDelegate {
 
         let zoom = activeCaptureZoomFactor
         let includePortraitData = activeCaptureMode == .portrait
+        let aspectRatio = includePortraitData ? .fourThree : activeCaptureAspectRatio
         guard let data = softwareZoomedFileData(
             for: photo,
             factor: zoom,
-            includePortraitData: includePortraitData
+            includePortraitData: includePortraitData,
+            aspectRatio: aspectRatio
         ) else {
             finishCapture(with: "Could not create the photo file")
             return
