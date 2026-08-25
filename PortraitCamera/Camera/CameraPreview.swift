@@ -107,11 +107,11 @@ final class PreviewView: UIView {
         }
 
         let interaction = AVCaptureEventInteraction(
-            primaryEventHandler: { [weak self] event in
+            primary: { [weak self] event in
                 guard event.phase == .ended else { return }
                 self?.primaryCaptureAction?()
             },
-            secondaryEventHandler: { [weak self] event in
+            secondary: { [weak self] event in
                 guard event.phase == .ended else { return }
                 self?.secondaryCaptureAction?()
             }
