@@ -85,36 +85,6 @@ enum PhotoAspectRatio: String, CaseIterable, Identifiable {
     }
 }
 
-enum PhotoStyle: String, CaseIterable, Identifiable {
-    case standard
-    case richContrast
-    case vibrant
-    case warm
-    case dramatic
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .standard: return "Standard"
-        case .richContrast: return "Rich Contrast"
-        case .vibrant: return "Vibrant"
-        case .warm: return "Warm"
-        case .dramatic: return "Dramatic"
-        }
-    }
-
-    var shortTitle: String {
-        switch self {
-        case .standard: return "STD"
-        case .richContrast: return "RICH"
-        case .vibrant: return "VIB"
-        case .warm: return "WARM"
-        case .dramatic: return "DRAM"
-        }
-    }
-}
-
 enum CamProTheme {
     static let accent = Color(red: 0.18, green: 0.48, blue: 0.98)
     static let accentMuted = Color(red: 0.18, green: 0.48, blue: 0.98).opacity(0.22)
@@ -130,9 +100,6 @@ final class CamProSettings: ObservableObject {
     @Published var mirrorFrontCamera: Bool {
         didSet { defaults.set(mirrorFrontCamera, forKey: Keys.mirrorFrontCamera) }
     }
-    @Published var hardwareCaptureActionsEnabled: Bool {
-        didSet { defaults.set(hardwareCaptureActionsEnabled, forKey: Keys.hardwareCaptureActionsEnabled) }
-    }
 
     private let defaults: UserDefaults
 
@@ -141,13 +108,11 @@ final class CamProSettings: ObservableObject {
         self.showDepthIndicator = defaults.object(forKey: Keys.showDepthIndicator) as? Bool ?? true
         self.hapticsEnabled = defaults.object(forKey: Keys.hapticsEnabled) as? Bool ?? true
         self.mirrorFrontCamera = defaults.object(forKey: Keys.mirrorFrontCamera) as? Bool ?? true
-        self.hardwareCaptureActionsEnabled = defaults.object(forKey: Keys.hardwareCaptureActionsEnabled) as? Bool ?? true
     }
 
     private enum Keys {
         static let showDepthIndicator = "campro.showDepthIndicator"
         static let hapticsEnabled = "campro.hapticsEnabled"
         static let mirrorFrontCamera = "campro.mirrorFrontCamera"
-        static let hardwareCaptureActionsEnabled = "campro.hardwareCaptureActionsEnabled"
     }
 }
