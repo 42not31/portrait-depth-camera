@@ -32,10 +32,6 @@ struct ContentView: View {
         camera.captureMode == .photo && camera.photoLens == .wide
     }
 
-    private var showsPortraitDepth: Bool {
-        camera.captureMode == .portrait
-    }
-
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
@@ -48,24 +44,13 @@ struct ContentView: View {
                 Spacer(minLength: 0)
             }
 
-            if showManualPanel {
-                VStack(spacing: 0) {
-                    Spacer(minLength: 0)
-                    manualPanel
-                        .padding(.horizontal, 18)
-                        .padding(.bottom, 176)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-            }
-
-            VStack(spacing: 0) {
-                Spacer(minLength: 0)
-                cameraDock
-            }
-
             if camera.permissionDenied {
                 permissionCard
             }
+        }
+        .overlay(alignment: .bottom) {
+            cameraDock
+                .zIndex(2)
         }
         .task {
             camera.start()
@@ -175,33 +160,37 @@ struct ContentView: View {
                             .position(focusPoint)
                     }
                 }
+                .frame(width: previewWidth, height: previewHeight)
                 .clipShape(
                     RoundedRectangle(
                         cornerRadius: isFullBleedPhoto ? 0 : 24,
                         style: .continuous
                     )
                 )
-                .frame(width: previewWidth, height: previewHeight)
-                .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
     }
 
     private var cameraDock: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 10) {
+            if showManualPanel {
+                manualPanel
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+
             modePicker
             lowerControlRow
             captureRow
         }
-        .padding(.top, 12)
+        .padding(.top, 10)
         .padding(.bottom, 12)
         .background(
             isFullBleedPhoto
-                ? Color.black.opacity(0.20)
-                : Color.black.opacity(0.86),
+                ? Color.black.opacity(0.18)
+                : Color.black.opacity(0.82),
             in: RoundedRectangle(
-                cornerRadius: isFullBleedPhoto ? 0 : 28,
+                cornerRadius: isFullBleedPhoto ? 0 : 24,
                 style: .continuous
             )
         )
@@ -209,7 +198,7 @@ struct ContentView: View {
     }
 
     private var modePicker: some View {
-        HStack(spacing: 3) {
+        HStack(spacing: 2) {
             ForEach(CaptureMode.allCases) { mode in
                 Button {
                     camera.setCaptureMode(mode)
@@ -217,14 +206,14 @@ struct ContentView: View {
                     showManualPanel = false
                 } label: {
                     Text(mode.title)
-                        .font(.system(size: 13, weight: .bold, design: .rounded))
-                        .tracking(0.6)
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .tracking(0.5)
                         .foregroundStyle(
                             camera.captureMode == mode
                                 ? .white
                                 : .white.opacity(0.66)
                         )
-                        .frame(maxWidth: .infinity, minHeight: 42)
+                        .frame(maxWidth: .infinity, minHeight: 32)
                         .background(
                             camera.captureMode == mode
                                 ? CamProTheme.accent
@@ -238,9 +227,9 @@ struct ContentView: View {
                 )
             }
         }
-        .padding(3)
+        .padding(2)
+        .frame(width: 236, height: 36)
         .background(Color.white.opacity(0.10), in: Capsule())
-        .padding(.horizontal, 18)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Capture mode")
     }
@@ -317,20 +306,17 @@ struct ContentView: View {
                 showManualPanel.toggle()
             }
         } label: {
-            Image(
-                systemName: camera.manualControlsEnabled
-                    ? "lock.fill"
-                    : "lock.open"
-            )
-            .font(.system(size: 15, weight: .bold))
-            .foregroundStyle(.white)
-            .frame(width: 44, height: 44)
-            .background(
-                showManualPanel || camera.manualControlsEnabled
-                    ? CamProTheme.accent
-                    : Color.white.opacity(0.12),
-                in: Circle()
-            )
+            Text("Manual")
+                .font(.system(size: 12, weight: .bold, design: .rounded))
+                .tracking(0.4)
+                .foregroundStyle(.white)
+                .frame(width: 72, height: 40)
+                .background(
+                    showManualPanel || camera.manualControlsEnabled
+                        ? CamProTheme.accent
+                        : Color.white.opacity(0.12),
+                    in: Capsule()
+                )
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Manual controls")
@@ -417,18 +403,9 @@ struct ContentView: View {
     }
 
     private var manualPanel: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 6) {
             HStack {
-                Image(
-                    systemName: camera.manualControlsEnabled
-                        ? "lock.fill"
-                        : "lock.open"
-                )
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.82))
-
                 Spacer(minLength: 0)
-
                 Toggle(
                     "",
                     isOn: Binding(
@@ -440,11 +417,11 @@ struct ContentView: View {
                 .tint(CamProTheme.accent)
                 .accessibilityLabel("Lock manual settings")
             }
-            .frame(minHeight: 34)
+            .frame(height: 28)
 
             if showsPhotoFocus {
                 CameraSliderRow(
-                    systemImage: "scope",
+                    label: "FOCUS",
                     value: Binding(
                         get: { Double(camera.manualFocusPosition) },
                         set: { camera.setManualFocusPosition(Float($0)) }
@@ -457,23 +434,8 @@ struct ContentView: View {
                 )
             }
 
-            if showsPortraitDepth {
-                CameraSliderRow(
-                    systemImage: "camera.aperture",
-                    value: Binding(
-                        get: { Double(camera.portraitDepth) },
-                        set: { camera.setPortraitDepth(Float($0)) }
-                    ),
-                    range: 0...1,
-                    display: { value in
-                        String(format: "%.0f%%", value * 100)
-                    },
-                    enabled: camera.manualControlsEnabled
-                )
-            }
-
             CameraSliderRow(
-                systemImage: "sun.max",
+                label: "EV",
                 value: Binding(
                     get: { Double(camera.exposureBias) },
                     set: { camera.setExposureBias(Float($0)) }
@@ -485,17 +447,17 @@ struct ContentView: View {
                 enabled: camera.manualControlsEnabled
             )
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
         .background(
-            .regularMaterial,
-            in: RoundedRectangle(cornerRadius: 22, style: .continuous)
+            .thinMaterial,
+            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
         )
         .overlay {
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(.white.opacity(0.16), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(.white.opacity(0.14), lineWidth: 1)
         }
-        .shadow(color: .black.opacity(0.28), radius: 18, y: 8)
+        .frame(maxWidth: 320)
     }
 
     private var permissionCard: some View {
@@ -552,18 +514,19 @@ private struct HeaderTextButton: View {
 }
 
 private struct CameraSliderRow: View {
-    let systemImage: String
+    let label: String
     @Binding var value: Double
     let range: ClosedRange<Double>
     let display: (Double) -> String
     let enabled: Bool
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: systemImage)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.white.opacity(enabled ? 0.88 : 0.42))
-                .frame(width: 24)
+        HStack(spacing: 8) {
+            Text(label)
+                .font(.system(size: 10, weight: .bold, design: .rounded))
+                .tracking(0.4)
+                .foregroundStyle(.white.opacity(enabled ? 0.86 : 0.42))
+                .frame(width: 42, alignment: .leading)
 
             Slider(value: $value, in: range)
                 .tint(CamProTheme.accent)
@@ -575,7 +538,7 @@ private struct CameraSliderRow: View {
                 .frame(width: 34, alignment: .trailing)
         }
         .opacity(enabled ? 1.0 : 0.56)
-        .frame(minHeight: 30)
+        .frame(minHeight: 32)
     }
 }
 
