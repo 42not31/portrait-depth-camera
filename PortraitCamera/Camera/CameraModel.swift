@@ -376,22 +376,15 @@ final class CameraModel: NSObject, ObservableObject {
     }
 
     func openLatestPhotoInPhotos() {
-        guard let localIdentifier = latestPhotoAssetIdentifier,
-              let uuid = localIdentifier.split(separator: "/").first,
-              let encodedUUID = String(uuid).addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let assetURL = URL(string: "photos-navigation://asset?uuid=\(encodedUUID)") else {
-            return
-        }
+        // There is no documented public API to deep-link to one PHAsset in Photos.
+        // Avoid the unstable photos-navigation asset URLs: on some iOS builds they
+        // can make Photos terminate while transitioning. Open Photos itself only.
+        guard let photosURL = URL(string: "photos-redirect://") else { return }
 
         DispatchQueue.main.async { [weak self] in
-            UIApplication.shared.open(assetURL, options: [:]) { opened in
-                guard !opened,
-                      let self,
-                      let fallbackURL = URL(string: "photos-navigation://album?name=recents&revealassetuuid=\(encodedUUID)") else { return }
-                UIApplication.shared.open(fallbackURL, options: [:]) { fallbackOpened in
-                    if !fallbackOpened {
-                        self.statusMessage = "Photos could not open this photo"
-                    }
+            UIApplication.shared.open(photosURL, options: [:]) { opened in
+                if !opened {
+                    self?.statusMessage = "Photos could not be opened"
                 }
             }
         }
