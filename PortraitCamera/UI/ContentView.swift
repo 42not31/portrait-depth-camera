@@ -13,6 +13,10 @@ struct ContentView: View {
         camera.captureMode == .photo ? [1.0, 2.0, 3.0, 4.0, 5.0] : [1.0, 2.0]
     }
 
+    private var previewAspectRatio: CGFloat {
+        camera.captureMode == .photo ? 1.0 / camera.photoAspectRatio.value : 3.0 / 4.0
+    }
+
     var body: some View {
         GeometryReader { proxy in
             ZStack {
@@ -21,7 +25,10 @@ struct ContentView: View {
                 VStack(spacing: 0) {
                     header
                     preview(in: proxy.size)
-                    controls
+                    ScrollView(.vertical, showsIndicators: false) {
+                        controls
+                    }
+                    .scrollIndicators(.hidden)
                 }
 
                 if camera.permissionDenied {
@@ -127,8 +134,14 @@ struct ContentView: View {
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .padding(.horizontal, 12)
         .contentShape(Rectangle())
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .aspectRatio(3.0 / 4.0, contentMode: .fit)
+        // Keep enough vertical space for the Photo toolbar and shutter on a base iPhone 13.
+        // The control area becomes scrollable when manual sliders are expanded.
+        .frame(
+            maxWidth: .infinity,
+            minHeight: 0,
+            maxHeight: min(size.height * 0.46, size.width / previewAspectRatio)
+        )
+        .aspectRatio(previewAspectRatio, contentMode: .fit)
     }
 
     private var controls: some View {
@@ -145,6 +158,10 @@ struct ContentView: View {
             .tint(CamProTheme.accent)
             .padding(.horizontal, 34)
             .accessibilityLabel("Capture mode")
+
+            if camera.captureMode == .photo {
+                photoControls
+            }
 
             HStack(spacing: 10) {
                 ForEach(zoomPresets, id: \.self) { preset in
@@ -218,6 +235,110 @@ struct ContentView: View {
         }
         .padding(.top, 16)
         .padding(.bottom, 22)
+    }
+
+    private var photoControls: some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 8) {
+                ForEach(PhotoLens.allCases) { lens in
+                    Button {
+                        camera.setPhotoLens(lens)
+                    } label: {
+                        Text(lens.title)
+                            .font(.system(size: 13, weight: .bold, design: .rounded))
+                            .foregroundStyle(camera.photoLens == lens ? .white : .white.opacity(0.78))
+                            .frame(minWidth: 48, minHeight: 34)
+                            .background(
+                                camera.photoLens == lens ? CamProTheme.accent : Color.white.opacity(0.1),
+                                in: Capsule()
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Photo lens \(lens.title)")
+                    .accessibilityAddTraits(camera.photoLens == lens ? .isSelected : [])
+                }
+
+                Spacer(minLength: 8)
+
+                Menu {
+                    ForEach(PhotoFlashMode.allCases) { mode in
+                        Button {
+                            camera.setPhotoFlashMode(mode)
+                        } label: {
+                            if camera.photoFlashMode == mode {
+                                Label(mode.title, systemImage: "checkmark")
+                            } else {
+                                Text(mode.title)
+                            }
+                        }
+                    }
+                } label: {
+                    Label(camera.photoFlashMode.title, systemImage: "bolt.fill")
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10)
+                        .frame(minHeight: 34)
+                        .background(Color.white.opacity(0.1), in: Capsule())
+                }
+                .tint(CamProTheme.accent)
+                .accessibilityLabel("Flash mode")
+
+                Menu {
+                    ForEach(PhotoAspectRatio.allCases) { ratio in
+                        Button {
+                            camera.setPhotoAspectRatio(ratio)
+                        } label: {
+                            if camera.photoAspectRatio == ratio {
+                                Label(ratio.title, systemImage: "checkmark")
+                            } else {
+                                Text(ratio.title)
+                            }
+                        }
+                    }
+                } label: {
+                    Text(camera.photoAspectRatio.title)
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10)
+                        .frame(minHeight: 34)
+                        .background(Color.white.opacity(0.1), in: Capsule())
+                }
+                .tint(CamProTheme.accent)
+                .accessibilityLabel("Photo aspect ratio")
+            }
+
+            Toggle("Manual controls", isOn: Binding(
+                get: { camera.manualControlsEnabled },
+                set: { camera.setManualControlsEnabled($0) }
+            ))
+            .font(.system(size: 13, weight: .semibold, design: .rounded))
+            .foregroundStyle(.white.opacity(0.86))
+            .tint(CamProTheme.accent)
+
+            if camera.manualControlsEnabled {
+                VStack(spacing: 8) {
+                    HStack {
+                        Text("FOCUS")
+                        Slider(value: Binding(
+                            get: { Double(camera.manualFocusPosition) },
+                            set: { camera.setManualFocusPosition(Float($0)) }
+                        ), in: 0...1)
+                        .tint(CamProTheme.accent)
+                    }
+                    HStack {
+                        Text("EXPOSURE")
+                        Slider(value: Binding(
+                            get: { Double(camera.exposureBias) },
+                            set: { camera.setExposureBias(Float($0)) }
+                        ), in: -2...2)
+                        .tint(CamProTheme.accent)
+                    }
+                }
+                .font(.system(size: 10, weight: .bold, design: .rounded))
+                .foregroundStyle(.white.opacity(0.72))
+            }
+        }
+        .padding(.horizontal, 28)
     }
 
     private var permissionCard: some View {
