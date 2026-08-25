@@ -227,26 +227,32 @@ struct ContentView: View {
             ZStack {
                 Color.black
 
-                CameraPreview(
-                    session: camera.session,
-                    zoomFactor: camera.zoomFactor,
-                    deviceZoomFactor: camera.deviceZoomFactor,
-                    // The interface stays portrait-locked. Saved output follows physical orientation.
-                    videoOrientation: .portrait,
-                    isMirrored: camera.cameraPosition == .front && settings.mirrorFrontCamera,
-                    hardwareEventsEnabled: settings.hardwareCaptureActionsEnabled
-                        && camera.isConfigured
-                        && camera.isRunning
-                        && !camera.isCapturing,
-                    onPrimaryCapture: { camera.capturePhoto() },
-                    onSecondaryCapture: { camera.advanceZoom() },
-                    onTap: { viewPoint, devicePoint in
-                        guard !camera.manualControlsEnabled else { return }
-                        camera.focus(at: devicePoint)
-                        focusPoint = viewPoint
-                        focusAnimationID = UUID()
+                Group {
+                    if camera.isConfigured && camera.isRunning {
+                        CameraPreview(
+                            session: camera.session,
+                            zoomFactor: camera.zoomFactor,
+                            deviceZoomFactor: camera.deviceZoomFactor,
+                            // The interface stays portrait-locked. Saved output follows physical orientation.
+                            videoOrientation: .portrait,
+                            isMirrored: camera.cameraPosition == .front && settings.mirrorFrontCamera,
+                            hardwareEventsEnabled: settings.hardwareCaptureActionsEnabled
+                                && camera.isConfigured
+                                && camera.isRunning
+                                && !camera.isCapturing,
+                            onPrimaryCapture: { camera.capturePhoto() },
+                            onSecondaryCapture: { camera.advanceZoom() },
+                            onTap: { viewPoint, devicePoint in
+                                guard !camera.manualControlsEnabled else { return }
+                                camera.focus(at: devicePoint)
+                                focusPoint = viewPoint
+                                focusAnimationID = UUID()
+                            }
+                        )
+                    } else {
+                        Color.black
                     }
-                )
+                }
                 .frame(width: previewWidth, height: previewHeight)
                 .clipShape(
                     RoundedRectangle(
