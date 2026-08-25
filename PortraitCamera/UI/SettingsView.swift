@@ -11,8 +11,7 @@ struct SettingsView: View {
                     Toggle("Depth readiness indicator", isOn: $settings.showDepthIndicator)
                     Toggle("Capture haptics", isOn: $settings.hapticsEnabled)
                     Toggle("Mirror front camera", isOn: $settings.mirrorFrontCamera)
-                    Toggle("Hardware capture actions", isOn: $settings.hardwareCaptureActionsEnabled)
-                } header: {
+                                    } header: {
                     Text("CAPTURE")
                 } footer: {
                     Text("Portrait capture remains native and Photos-editable. These preferences are stored on this device.")
