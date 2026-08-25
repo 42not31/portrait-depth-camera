@@ -10,6 +10,9 @@ struct ContentView: View {
     @State private var focusAnimationID = UUID()
     @State private var showSettings = false
     @State private var showManualPanel = false
+    @State private var headerHeight: CGFloat = 72
+    @State private var dockHeight: CGFloat = 210
+    @State private var bottomSafeAreaInset: CGFloat = 0
 
     private var zoomPresets: [CGFloat] {
         camera.captureMode == .photo ? [1.0, 2.0, 3.0, 4.0, 5.0] : [1.0, 2.0]
@@ -51,6 +54,17 @@ struct ContentView: View {
         .overlay(alignment: .bottom) {
             cameraDock
                 .zIndex(2)
+        }
+        .onPreferenceChange(CameraHeaderHeightKey.self) { headerHeight = $0 }
+        .onPreferenceChange(CameraDockHeightKey.self) { dockHeight = $0 }
+        .onPreferenceChange(CameraSafeAreaKey.self) { bottomSafeAreaInset = $0 }
+        .overlay {
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: CameraSafeAreaKey.self,
+                    value: proxy.safeAreaInsets.bottom
+                )
+            }
         }
         .task {
             camera.start()
@@ -128,14 +142,45 @@ struct ContentView: View {
         .padding(.horizontal, 18)
         .padding(.top, 8)
         .padding(.bottom, 8)
+        .background {
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: CameraHeaderHeightKey.self,
+                    value: proxy.size.height
+                )
+            }
+        }
     }
 
     private var previewSurface: some View {
         GeometryReader { proxy in
-            let previewWidth = proxy.size.width
+            let usableTop = min(max(headerHeight, 0), proxy.size.height)
+            let dockAndSafeBottom = max(dockHeight, 0) + bottomSafeAreaInset
+            let usableBottom = min(
+                dockAndSafeBottom,
+                max(0, proxy.size.height - usableTop)
+            )
+            let usableHeight = max(
+                1,
+                proxy.size.height - usableTop - usableBottom
+            )
+            let fittedWidth = min(
+                proxy.size.width,
+                usableHeight * previewAspectRatio
+            )
+            let fittedHeight = min(
+                usableHeight,
+                proxy.size.width / previewAspectRatio
+            )
+            let previewWidth = isFullBleedPhoto
+                ? proxy.size.width
+                : fittedWidth
             let previewHeight = isFullBleedPhoto
-                ? proxy.size.height
-                : min(proxy.size.height, previewWidth / previewAspectRatio)
+                ? proxy.size.height + bottomSafeAreaInset
+                : fittedHeight
+            let previewCenterY = isFullBleedPhoto
+                ? proxy.size.height / 2 + bottomSafeAreaInset / 2
+                : usableTop + usableHeight / 2
 
             ZStack {
                 Color.black
@@ -153,6 +198,13 @@ struct ContentView: View {
                         focusAnimationID = UUID()
                     }
                 )
+                .frame(width: previewWidth, height: previewHeight)
+                .clipShape(
+                    RoundedRectangle(
+                        cornerRadius: isFullBleedPhoto ? 0 : 24,
+                        style: .continuous
+                    )
+                )
                 .overlay {
                     if let focusPoint, !camera.manualControlsEnabled {
                         FocusReticle()
@@ -160,12 +212,9 @@ struct ContentView: View {
                             .position(focusPoint)
                     }
                 }
-                .frame(width: previewWidth, height: previewHeight)
-                .clipShape(
-                    RoundedRectangle(
-                        cornerRadius: isFullBleedPhoto ? 0 : 24,
-                        style: .continuous
-                    )
+                .position(
+                    x: proxy.size.width / 2,
+                    y: previewCenterY
                 )
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
@@ -195,6 +244,14 @@ struct ContentView: View {
             )
         )
         .padding(.horizontal, isFullBleedPhoto ? 0 : 10)
+        .overlay {
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: CameraDockHeightKey.self,
+                    value: proxy.size.height
+                )
+            }
+        }
     }
 
     private var modePicker: some View {
@@ -479,6 +536,30 @@ struct ContentView: View {
             in: RoundedRectangle(cornerRadius: 24, style: .continuous)
         )
         .padding(28)
+    }
+}
+
+private struct CameraHeaderHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 72
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+private struct CameraDockHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 210
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+private struct CameraSafeAreaKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }
 
