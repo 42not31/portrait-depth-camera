@@ -7,6 +7,7 @@ struct CameraPreview: UIViewRepresentable {
     let zoomFactor: CGFloat
     let deviceZoomFactor: CGFloat
     let videoOrientation: AVCaptureVideoOrientation
+    let isMirrored: Bool
     let onTap: (CGPoint, CGPoint) -> Void
 
     func makeUIView(context: Context) -> PreviewView {
@@ -14,6 +15,7 @@ struct CameraPreview: UIViewRepresentable {
         view.videoPreviewLayer.session = session
         view.onTap = onTap
         view.setVideoOrientation(videoOrientation)
+        view.setMirrored(isMirrored)
         view.setDigitalZoom(max(1.0, zoomFactor / max(deviceZoomFactor, 1.0)))
         return view
     }
@@ -22,6 +24,7 @@ struct CameraPreview: UIViewRepresentable {
         view.videoPreviewLayer.session = session
         view.onTap = onTap
         view.setVideoOrientation(videoOrientation)
+        view.setMirrored(isMirrored)
         view.setDigitalZoom(max(1.0, zoomFactor / max(deviceZoomFactor, 1.0)))
     }
 }
@@ -64,6 +67,12 @@ final class PreviewView: UIView {
         guard let connection = previewLayer.connection,
               connection.isVideoOrientationSupported else { return }
         connection.videoOrientation = orientation
+    }
+
+    func setMirrored(_ mirrored: Bool) {
+        guard let connection = previewLayer.connection,
+              connection.isVideoMirroringSupported else { return }
+        connection.isVideoMirrored = mirrored
     }
 
     func setDigitalZoom(_ factor: CGFloat) {
