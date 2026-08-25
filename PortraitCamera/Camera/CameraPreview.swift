@@ -48,7 +48,6 @@ final class PreviewView: UIView {
     var onTap: ((CGPoint, CGPoint) -> Void)?
     private var primaryCaptureAction: (() -> Void)?
     private var secondaryCaptureAction: (() -> Void)?
-    private var captureEventInteraction: UIInteraction?
 
     var videoPreviewLayer: AVCaptureVideoPreviewLayer {
         previewLayer
@@ -93,32 +92,16 @@ final class PreviewView: UIView {
     }
 
     func setHardwareCaptureHandlers(
-        enabled: Bool,
+        enabled _: Bool,
         primary: @escaping () -> Void,
         secondary: @escaping () -> Void
     ) {
+        // Hardware capture-event interaction is temporarily disabled for the
+        // recovery build while validating launch stability on iOS 27 beta.
+        // The actions remain stored so the feature can be restored after the
+        // app is confirmed stable on the physical device.
         primaryCaptureAction = primary
         secondaryCaptureAction = secondary
-
-        guard #available(iOS 18.0, *) else { return }
-        if let interaction = captureEventInteraction as? AVCaptureEventInteraction {
-            interaction.isEnabled = enabled
-            return
-        }
-
-        let interaction = AVCaptureEventInteraction(
-            primary: { [weak self] event in
-                guard event.phase == .ended else { return }
-                self?.primaryCaptureAction?()
-            },
-            secondary: { [weak self] event in
-                guard event.phase == .ended else { return }
-                self?.secondaryCaptureAction?()
-            }
-        )
-        addInteraction(interaction)
-        captureEventInteraction = interaction
-        interaction.isEnabled = enabled
     }
 
     func setDigitalZoom(_ factor: CGFloat) {
