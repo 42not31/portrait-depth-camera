@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 
 enum CaptureMode: String, CaseIterable, Identifiable {
@@ -10,6 +11,69 @@ enum CaptureMode: String, CaseIterable, Identifiable {
         switch self {
         case .photo: return "PHOTO"
         case .portrait: return "PORTRAIT"
+        }
+    }
+}
+
+enum PhotoLens: String, CaseIterable, Identifiable {
+    case ultraWide
+    case wide
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .ultraWide: return "0.5×"
+        case .wide: return "1×"
+        }
+    }
+
+    var deviceType: AVCaptureDevice.DeviceType {
+        switch self {
+        case .ultraWide: return .builtInUltraWideCamera
+        case .wide: return .builtInWideAngleCamera
+        }
+    }
+}
+
+enum PhotoFlashMode: String, CaseIterable, Identifiable {
+    case off
+    case auto
+    case on
+
+    var id: String { rawValue }
+
+    var title: String { rawValue.uppercased() }
+
+    var captureMode: AVCaptureDevice.FlashMode {
+        switch self {
+        case .off: return .off
+        case .auto: return .auto
+        case .on: return .on
+        }
+    }
+}
+
+enum PhotoAspectRatio: String, CaseIterable, Identifiable {
+    case fourThree
+    case sixteenNine
+    case square
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .fourThree: return "4:3"
+        case .sixteenNine: return "16:9"
+        case .square: return "1:1"
+        }
+    }
+
+    var value: CGFloat {
+        switch self {
+        case .fourThree: return 4.0 / 3.0
+        case .sixteenNine: return 16.0 / 9.0
+        case .square: return 1.0
         }
     }
 }
