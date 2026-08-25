@@ -21,7 +21,6 @@ final class CameraModel: NSObject, ObservableObject {
     @Published private(set) var manualControlsEnabled = false
     @Published private(set) var manualFocusPosition: Float = 0.5
     @Published private(set) var exposureBias: Float = 0.0
-    @Published private(set) var portraitDepth: Float = 0.5
     @Published private(set) var videoOrientation: AVCaptureVideoOrientation = .portrait
     @Published private(set) var latestPhotoImage: UIImage?
     @Published private(set) var latestPhotoAssetIdentifier: String?
@@ -280,11 +279,6 @@ final class CameraModel: NSObject, ObservableObject {
                 DispatchQueue.main.async { self.statusMessage = "Manual focus is unavailable" }
             }
         }
-    }
-
-    func setPortraitDepth(_ depth: Float) {
-        let clamped = min(max(depth, 0), 1)
-        DispatchQueue.main.async { [weak self] in self?.portraitDepth = clamped }
     }
 
     func setExposureBias(_ bias: Float) {
