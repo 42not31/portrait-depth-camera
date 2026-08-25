@@ -21,6 +21,7 @@ final class CameraModel: NSObject, ObservableObject {
     @Published private(set) var manualControlsEnabled = false
     @Published private(set) var manualFocusPosition: Float = 0.5
     @Published private(set) var exposureBias: Float = 0.0
+    @Published private(set) var portraitDepth: Float = 0.5
     @Published private(set) var videoOrientation: AVCaptureVideoOrientation = .portrait
     @Published private(set) var latestPhotoImage: UIImage?
     @Published private(set) var latestPhotoAssetIdentifier: String?
@@ -239,7 +240,10 @@ final class CameraModel: NSObject, ObservableObject {
             do {
                 try device.lockForConfiguration()
                 if enabled {
-                    if device.isLockingFocusWithCustomLensPositionSupported {
+                    let canLockPhotoFocus = self.captureMode == .photo
+                        && self.photoLens == .wide
+                        && device.isLockingFocusWithCustomLensPositionSupported
+                    if canLockPhotoFocus {
                         device.setFocusModeLocked(lensPosition: self.manualFocusPosition, completionHandler: nil)
                     }
                     if device.minExposureTargetBias < device.maxExposureTargetBias {
@@ -264,7 +268,7 @@ final class CameraModel: NSObject, ObservableObject {
     func setManualFocusPosition(_ position: Float) {
         let clamped = min(max(position, 0), 1)
         DispatchQueue.main.async { [weak self] in self?.manualFocusPosition = clamped }
-        guard manualControlsEnabled else { return }
+        guard manualControlsEnabled, captureMode == .photo, photoLens == .wide else { return }
         sessionQueue.async { [weak self] in
             guard let self, self.isSessionConfigured, let device = self.videoInput?.device,
                   device.isLockingFocusWithCustomLensPositionSupported else { return }
@@ -276,6 +280,11 @@ final class CameraModel: NSObject, ObservableObject {
                 DispatchQueue.main.async { self.statusMessage = "Manual focus is unavailable" }
             }
         }
+    }
+
+    func setPortraitDepth(_ depth: Float) {
+        let clamped = min(max(depth, 0), 1)
+        DispatchQueue.main.async { [weak self] in self?.portraitDepth = clamped }
     }
 
     func setExposureBias(_ bias: Float) {
