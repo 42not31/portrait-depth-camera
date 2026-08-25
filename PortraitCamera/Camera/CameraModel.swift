@@ -66,19 +66,26 @@ final class CameraModel: NSObject, ObservableObject {
     }
 
     func start() {
+        // Diagnostic recovery mode: keep permission handling and the SwiftUI shell,
+        // but do not enter AVCaptureSession configuration yet. This isolates the
+        // persistent post-permission termination from the live camera path.
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
-            configureIfNeeded()
+            DispatchQueue.main.async { [weak self] in
+                self?.statusMessage = "Camera startup paused for diagnostics"
+            }
         case .notDetermined:
             AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
-                if granted {
-                    self?.configureIfNeeded()
-                } else {
-                    DispatchQueue.main.async { self?.permissionDenied = true }
+                DispatchQueue.main.async {
+                    if granted {
+                        self?.statusMessage = "Camera startup paused for diagnostics"
+                    } else {
+                        self?.permissionDenied = true
+                    }
                 }
             }
         default:
-            DispatchQueue.main.async { self.permissionDenied = true }
+            DispatchQueue.main.async { [weak self] in self?.permissionDenied = true }
         }
     }
 
