@@ -15,13 +15,6 @@ enum CaptureMode: String, CaseIterable, Identifiable {
     }
 }
 
-enum CameraPosition: String, Identifiable {
-    case back
-    case front
-
-    var id: String { rawValue }
-}
-
 enum PhotoLens: String, CaseIterable, Identifiable {
     case ultraWide
     case wide
