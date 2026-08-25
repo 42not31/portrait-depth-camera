@@ -244,7 +244,7 @@ final class CameraModel: NSObject, ObservableObject {
                     if device.isLockingFocusWithCustomLensPositionSupported {
                         device.setFocusModeLocked(lensPosition: self.manualFocusPosition, completionHandler: nil)
                     }
-                    if device.isExposureTargetBiasAdjustable {
+                    if device.minExposureTargetBias < device.maxExposureTargetBias {
                         device.setExposureTargetBias(self.exposureBias, completionHandler: nil)
                     }
                 } else {
@@ -286,7 +286,7 @@ final class CameraModel: NSObject, ObservableObject {
         guard captureMode == .photo, manualControlsEnabled else { return }
         sessionQueue.async { [weak self] in
             guard let self, self.isSessionConfigured, let device = self.videoInput?.device,
-                  device.isExposureTargetBiasAdjustable else { return }
+                  device.minExposureTargetBias < device.maxExposureTargetBias else { return }
             do {
                 try device.lockForConfiguration()
                 device.setExposureTargetBias(clamped, completionHandler: nil)
