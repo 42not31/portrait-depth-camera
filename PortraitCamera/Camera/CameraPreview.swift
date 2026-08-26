@@ -11,23 +11,33 @@ struct CameraPreview: UIViewRepresentable {
 
     func makeUIView(context: Context) -> PreviewView {
         let view = PreviewView()
-        view.videoPreviewLayer.session = session
-        view.onTap = onTap
-        view.setVideoOrientation(videoOrientation)
-        view.setDigitalZoom(max(1.0, zoomFactor / max(deviceZoomFactor, 1.0)))
+        view.apply(
+            session: session,
+            onTap: onTap,
+            orientation: videoOrientation,
+            digitalZoom: max(1.0, zoomFactor / max(deviceZoomFactor, 1.0))
+        )
         return view
     }
 
     func updateUIView(_ view: PreviewView, context: Context) {
-        view.videoPreviewLayer.session = session
-        view.onTap = onTap
-        view.setVideoOrientation(videoOrientation)
-        view.setDigitalZoom(max(1.0, zoomFactor / max(deviceZoomFactor, 1.0)))
+        // Keep the live layer stable. Reassigning the session and transform on
+        // every SwiftUI state update can interrupt preview rendering while a
+        // menu, mode, or aspect-ratio control is being used.
+        view.apply(
+            session: session,
+            onTap: onTap,
+            orientation: videoOrientation,
+            digitalZoom: max(1.0, zoomFactor / max(deviceZoomFactor, 1.0))
+        )
     }
 }
 
 final class PreviewView: UIView {
     private let previewLayer = AVCaptureVideoPreviewLayer()
+    private var lastDigitalZoom: CGFloat = 1.0
+    private var lastOrientation: AVCaptureVideoOrientation?
+
     var onTap: ((CGPoint, CGPoint) -> Void)?
 
     var videoPreviewLayer: AVCaptureVideoPreviewLayer {
@@ -36,6 +46,15 @@ final class PreviewView: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        configureView()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        configureView()
+    }
+
+    private func configureView() {
         backgroundColor = .black
         clipsToBounds = true
         previewLayer.videoGravity = .resizeAspectFill
@@ -45,10 +64,18 @@ final class PreviewView: UIView {
         addGestureRecognizer(tap)
     }
 
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        previewLayer.videoGravity = .resizeAspectFill
-        layer.addSublayer(previewLayer)
+    func apply(
+        session: AVCaptureSession,
+        onTap: @escaping (CGPoint, CGPoint) -> Void,
+        orientation: AVCaptureVideoOrientation,
+        digitalZoom: CGFloat
+    ) {
+        if previewLayer.session !== session {
+            previewLayer.session = session
+        }
+        self.onTap = onTap
+        setVideoOrientation(orientation)
+        setDigitalZoom(digitalZoom)
     }
 
     override func layoutSubviews() {
@@ -61,13 +88,20 @@ final class PreviewView: UIView {
     }
 
     func setVideoOrientation(_ orientation: AVCaptureVideoOrientation) {
-        guard let connection = previewLayer.connection,
+        guard lastOrientation != orientation,
+              let connection = previewLayer.connection,
               connection.isVideoOrientationSupported else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         connection.videoOrientation = orientation
+        CATransaction.commit()
+        lastOrientation = orientation
     }
 
     func setDigitalZoom(_ factor: CGFloat) {
         let clamped = min(max(factor, 1.0), 5.0)
+        guard abs(lastDigitalZoom - clamped) > 0.001 else { return }
+        lastDigitalZoom = clamped
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         previewLayer.setAffineTransform(CGAffineTransform(scaleX: clamped, y: clamped))

@@ -478,7 +478,7 @@ final class CameraModel: NSObject, ObservableObject {
     }
 
     private func saveToPhotos(data: Data, zoomFactor: CGFloat) {
-        let latestThumbnail = UIImage(data: data)?.preparingThumbnail(of: CGSize(width: 320, height: 320))
+        let latestThumbnail = makeLatestThumbnail(from: data)
         let save: () -> Void = { [weak self] in
             var placeholderIdentifier: String?
             PHPhotoLibrary.shared().performChanges({
@@ -523,6 +523,20 @@ final class CameraModel: NSObject, ObservableObject {
                 self.statusMessage = "Photos permission is required"
             }
         }
+    }
+
+    private func makeLatestThumbnail(from data: Data) -> UIImage? {
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: 320
+        ]
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+        else {
+            return UIImage(data: data)?.preparingThumbnail(of: CGSize(width: 320, height: 320))
+        }
+        return UIImage(cgImage: image)
     }
 
     func openLatestPhotoInPhotos() {
