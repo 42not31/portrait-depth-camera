@@ -8,7 +8,7 @@ struct PortraitCameraApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView(camera: camera, settings: settings)
-                .preferredColorScheme(.dark)
+                .preferredColorScheme(.light)
         }
     }
 }

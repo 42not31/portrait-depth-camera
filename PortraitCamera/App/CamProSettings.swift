@@ -79,8 +79,8 @@ enum PhotoAspectRatio: String, CaseIterable, Identifiable {
 }
 
 enum CamProTheme {
-    static let accent = Color(red: 0.18, green: 0.48, blue: 0.98)
-    static let accentMuted = Color(red: 0.18, green: 0.48, blue: 0.98).opacity(0.22)
+    static let accent = Color.primary
+    static let accentMuted = Color.primary.opacity(0.14)
 }
 
 final class CamProSettings: ObservableObject {
