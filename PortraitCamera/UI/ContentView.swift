@@ -182,7 +182,12 @@ struct ContentView: View {
                 }
                 .padding(.bottom, proxy.safeAreaInsets.bottom + 8)
                 .frame(maxWidth: .infinity)
-                .background(Color.black.opacity(0.84))
+                .background {
+                    ZStack {
+                        Color.black.opacity(0.46)
+                        Rectangle().fill(.ultraThinMaterial)
+                    }
+                }
 
                 if showManualPanel {
                     manualPanel
