@@ -43,6 +43,10 @@ struct ContentView: View {
         }
     }
 
+    private var previewLayoutKey: String {
+        "\(camera.captureMode.rawValue)-\(camera.photoAspectRatio.rawValue)"
+    }
+
     private var showsPhotoFocus: Bool {
         camera.captureMode == .photo && camera.photoLens == .wide
     }
@@ -120,7 +124,7 @@ struct ContentView: View {
                 } label: {
                     AspectRatioControl(title: aspectRatioDisplayTitle)
                 }
-                .tint(.white)
+                .tint(cameraYellow)
                 .frame(width: 58)
 
                 topSeparator
@@ -186,11 +190,15 @@ struct ContentView: View {
                             .position(focusPoint)
                     }
                 }
+                .overlay(alignment: .bottom) {
+                    zoomButton
+                        .padding(.bottom, 8)
+                }
                 .position(
                     x: proxy.size.width / 2,
                     y: proxy.size.height / 2
                 )
-                .animation(.easeInOut(duration: 0.24), value: camera.photoAspectRatio)
+                .animation(.easeInOut(duration: 0.24), value: previewLayoutKey)
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
             .contentShape(Rectangle())
@@ -222,17 +230,15 @@ struct ContentView: View {
             leftCaptureControl
                 .frame(maxWidth: .infinity)
 
-            VStack(spacing: 5) {
-                zoomButton
-                shutterButton
-            }
-            .frame(maxWidth: .infinity)
+            shutterButton
+                .frame(maxWidth: .infinity)
 
             rightCaptureControl
                 .frame(maxWidth: .infinity)
         }
         .padding(.horizontal, 18)
         .frame(height: 168)
+        .contentShape(Rectangle())
     }
 
     private var bottomNavigationRow: some View {
@@ -331,14 +337,15 @@ struct ContentView: View {
             advanceZoom()
         } label: {
             Text("\(camera.zoomFactor, specifier: "%.0f")×")
-                .font(.system(size: 18, weight: .semibold, design: .default))
+                .font(.system(size: 16, weight: .semibold, design: .default))
                 .foregroundStyle(cameraYellow)
                 .frame(width: 48, height: 48)
                 .background(.ultraThinMaterial, in: Circle())
                 .overlay {
                     Circle()
-                        .stroke(Color.white.opacity(0.20), lineWidth: 1.0)
+                        .stroke(Color.white.opacity(0.28), lineWidth: 1.0)
                 }
+                .shadow(color: .black.opacity(0.22), radius: 5, y: 2)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(
@@ -455,7 +462,7 @@ struct ContentView: View {
                 .foregroundStyle(
                     camera.captureMode == mode ? cameraYellow : .white.opacity(0.90)
                 )
-                .frame(maxWidth: .infinity, minHeight: 46)
+                .frame(maxWidth: .infinity, minHeight: 42)
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(
