@@ -10,16 +10,12 @@ struct ContentView: View {
     @State private var focusAnimationID = UUID()
     @State private var showSettings = false
     @State private var showManualPanel = false
-    @State private var headerHeight: CGFloat = 72
-    @State private var dockHeight: CGFloat = 210
-    @State private var bottomSafeAreaInset: CGFloat = 0
+
+    private let topBarHeight: CGFloat = 58
+    private let dockHeight: CGFloat = 194
 
     private var zoomPresets: [CGFloat] {
         camera.captureMode == .photo ? [1.0, 2.0, 3.0, 4.0, 5.0] : [1.0, 2.0]
-    }
-
-    private var isFullBleedPhoto: Bool {
-        camera.captureMode == .photo && camera.photoAspectRatio == .sixteenNine
     }
 
     private var previewAspectRatio: CGFloat {
@@ -36,36 +32,49 @@ struct ContentView: View {
     }
 
     var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
+        GeometryReader { proxy in
+            let topInset = max(proxy.safeAreaInsets.top, 0)
+            let bottomInset = max(proxy.safeAreaInsets.bottom, 0)
+            let previewTop = topInset + topBarHeight
+            let previewBottom = bottomInset + dockHeight
+            let previewHeight = max(1, proxy.size.height - previewTop - previewBottom)
+            let previewRegion = CGRect(
+                x: 0,
+                y: previewTop,
+                width: proxy.size.width,
+                height: previewHeight
+            )
 
-            previewSurface
-                .ignoresSafeArea()
+            ZStack {
+                Color.black
 
-            VStack(spacing: 0) {
-                header
-                Spacer(minLength: 0)
-            }
+                previewSurface(in: previewRegion)
+                    .animation(.easeInOut(duration: 0.22), value: camera.photoAspectRatio)
 
-            if camera.permissionDenied {
-                permissionCard
-            }
-        }
-        .overlay(alignment: .bottom) {
-            cameraDock
-                .zIndex(2)
-        }
-        .onPreferenceChange(CameraHeaderHeightKey.self) { headerHeight = $0 }
-        .onPreferenceChange(CameraDockHeightKey.self) { dockHeight = $0 }
-        .onPreferenceChange(CameraSafeAreaKey.self) { bottomSafeAreaInset = $0 }
-        .overlay {
-            GeometryReader { proxy in
-                Color.clear.preference(
-                    key: CameraSafeAreaKey.self,
-                    value: proxy.safeAreaInsets.bottom
+                VStack(spacing: 0) {
+                    header
+                        .padding(.top, topInset)
+                        .frame(
+                            width: proxy.size.width,
+                            height: previewTop,
+                            alignment: .bottom
+                        )
+                    Spacer(minLength: 0)
+                }
+
+                cameraControls(
+                    width: proxy.size.width,
+                    height: proxy.size.height,
+                    bottomInset: bottomInset
                 )
+
+                if camera.permissionDenied {
+                    permissionCard
+                }
             }
+            .frame(width: proxy.size.width, height: proxy.size.height)
         }
+        .ignoresSafeArea()
         .task {
             camera.start()
         }
@@ -79,12 +88,7 @@ struct ContentView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Text("CAMPRO")
-                .font(.system(size: 15, weight: .bold, design: .rounded))
-                .tracking(2.2)
-                .foregroundStyle(.white)
-
-            Spacer(minLength: 8)
+            Spacer(minLength: 0)
 
             Menu {
                 ForEach(PhotoFlashMode.allCases) { mode in
@@ -100,7 +104,9 @@ struct ContentView: View {
                 }
             } label: {
                 HeaderIconButton(
-                    systemImage: camera.photoFlashMode == .off ? "bolt.slash.fill" : "bolt.fill",
+                    systemImage: camera.photoFlashMode == .off
+                        ? "bolt.slash.fill"
+                        : "bolt.fill",
                     isSelected: camera.photoFlashMode != .off
                 )
             }
@@ -134,123 +140,109 @@ struct ContentView: View {
                     .font(.system(size: 17, weight: .medium))
                     .foregroundStyle(.white.opacity(0.94))
                     .frame(width: 44, height: 44)
-                    .background(CamProTheme.accentMuted, in: Circle())
+                    .background(.white.opacity(0.12), in: Circle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Settings")
         }
-        .padding(.horizontal, 18)
-        .padding(.top, 8)
-        .padding(.bottom, 8)
+        .padding(.horizontal, 12)
+        .padding(.bottom, 6)
+        .frame(maxWidth: .infinity)
         .background {
-            GeometryReader { proxy in
-                Color.clear.preference(
-                    key: CameraHeaderHeightKey.self,
-                    value: proxy.size.height
-                )
-            }
+            LinearGradient(
+                colors: [
+                    Color.black.opacity(0.72),
+                    Color.black.opacity(0.18),
+                    .clear
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea(edges: .top)
         }
     }
 
-    private var previewSurface: some View {
-        GeometryReader { proxy in
-            let usableTop = min(max(headerHeight, 0), proxy.size.height)
-            let dockAndSafeBottom = max(dockHeight, 0) + bottomSafeAreaInset
-            let usableBottom = min(
-                dockAndSafeBottom,
-                max(0, proxy.size.height - usableTop)
-            )
-            let usableHeight = max(
-                1,
-                proxy.size.height - usableTop - usableBottom
-            )
-            let fittedWidth = min(
-                proxy.size.width,
-                usableHeight * previewAspectRatio
-            )
-            let fittedHeight = min(
-                usableHeight,
-                proxy.size.width / previewAspectRatio
-            )
-            let previewWidth = isFullBleedPhoto
-                ? proxy.size.width
-                : fittedWidth
-            let previewHeight = isFullBleedPhoto
-                ? proxy.size.height + bottomSafeAreaInset
-                : fittedHeight
-            let previewCenterY = isFullBleedPhoto
-                ? proxy.size.height / 2 + bottomSafeAreaInset / 2
-                : usableTop + usableHeight / 2
+    private func previewSurface(in region: CGRect) -> some View {
+        let previewWidth = max(1, min(region.width, region.height * previewAspectRatio))
+        let previewHeight = max(1, min(region.height, region.width / previewAspectRatio))
 
-            ZStack {
-                Color.black
+        return ZStack {
+            Color.black
 
-                CameraPreview(
-                    session: camera.session,
-                    zoomFactor: camera.zoomFactor,
-                    deviceZoomFactor: camera.deviceZoomFactor,
-                    // The interface stays portrait-locked. Saved output follows physical orientation.
-                    videoOrientation: .portrait,
-                    onTap: { viewPoint, devicePoint in
-                        guard !camera.manualControlsEnabled else { return }
-                        camera.focus(at: devicePoint)
-                        focusPoint = viewPoint
-                        focusAnimationID = UUID()
-                    }
-                )
-                .frame(width: previewWidth, height: previewHeight)
-                .clipShape(
-                    RoundedRectangle(
-                        cornerRadius: isFullBleedPhoto ? 0 : 24,
-                        style: .continuous
-                    )
-                )
-                .overlay {
-                    if let focusPoint, !camera.manualControlsEnabled {
-                        FocusReticle()
-                            .id(focusAnimationID)
-                            .position(focusPoint)
-                    }
+            CameraPreview(
+                session: camera.session,
+                zoomFactor: camera.zoomFactor,
+                deviceZoomFactor: camera.deviceZoomFactor,
+                // The interface stays portrait-locked. Saved output follows physical orientation.
+                videoOrientation: .portrait,
+                onTap: { viewPoint, devicePoint in
+                    guard !camera.manualControlsEnabled else { return }
+                    camera.focus(at: devicePoint)
+                    focusPoint = viewPoint
+                    focusAnimationID = UUID()
                 }
-                .position(
-                    x: proxy.size.width / 2,
-                    y: previewCenterY
-                )
+            )
+            .frame(width: previewWidth, height: previewHeight)
+            .overlay {
+                if let focusPoint, !camera.manualControlsEnabled {
+                    FocusReticle()
+                        .id(focusAnimationID)
+                        .position(focusPoint)
+                }
             }
-            .frame(width: proxy.size.width, height: proxy.size.height)
+            .position(x: region.width / 2, y: region.height / 2)
         }
+        .frame(width: region.width, height: region.height)
+        .position(x: region.midX, y: region.midY)
+    }
+
+    private func cameraControls(
+        width: CGFloat,
+        height: CGFloat,
+        bottomInset: CGFloat
+    ) -> some View {
+        ZStack(alignment: .bottom) {
+            cameraDock
+                .padding(.bottom, bottomInset)
+
+            if showManualPanel {
+                manualPanel
+                    .padding(.bottom, bottomInset + dockHeight + 8)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .frame(width: width, height: height, alignment: .bottom)
+        .animation(
+            .spring(response: 0.28, dampingFraction: 0.86),
+            value: showManualPanel
+        )
     }
 
     private var cameraDock: some View {
         VStack(spacing: 10) {
-            if showManualPanel {
-                manualPanel
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-
             modePicker
             lowerControlRow
             captureRow
         }
         .padding(.top, 10)
-        .padding(.bottom, 12)
-        .background(
-            isFullBleedPhoto
-                ? Color.black.opacity(0.18)
-                : Color.black.opacity(0.82),
-            in: RoundedRectangle(
-                cornerRadius: isFullBleedPhoto ? 0 : 24,
-                style: .continuous
+        .padding(.bottom, 8)
+        .frame(maxWidth: .infinity)
+        .background {
+            LinearGradient(
+                colors: [
+                    Color.black.opacity(0.12),
+                    Color.black.opacity(0.72),
+                    Color.black.opacity(0.98)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
             )
-        )
-        .padding(.horizontal, isFullBleedPhoto ? 0 : 10)
-        .overlay {
-            GeometryReader { proxy in
-                Color.clear.preference(
-                    key: CameraDockHeightKey.self,
-                    value: proxy.size.height
-                )
+            .overlay(alignment: .top) {
+                Rectangle()
+                    .fill(.white.opacity(0.10))
+                    .frame(height: 1)
             }
+            .ignoresSafeArea(edges: .bottom)
         }
     }
 
@@ -263,18 +255,18 @@ struct ContentView: View {
                     showManualPanel = false
                 } label: {
                     Text(mode.title)
-                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .font(.system(size: 12, weight: .bold))
                         .tracking(0.5)
                         .foregroundStyle(
                             camera.captureMode == mode
                                 ? .white
-                                : .white.opacity(0.66)
+                                : .white.opacity(0.62)
                         )
                         .frame(maxWidth: .infinity, minHeight: 32)
                         .background(
                             camera.captureMode == mode
                                 ? CamProTheme.accent
-                                : Color.clear,
+                                : .clear,
                             in: Capsule()
                         )
                 }
@@ -286,7 +278,7 @@ struct ContentView: View {
         }
         .padding(2)
         .frame(width: 236, height: 36)
-        .background(Color.white.opacity(0.10), in: Capsule())
+        .background(.white.opacity(0.12), in: Capsule())
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Capture mode")
     }
@@ -299,35 +291,39 @@ struct ContentView: View {
                 if camera.captureMode == .photo {
                     lensToggle
                 } else {
-                    Color.clear.frame(width: 112, height: 44)
+                    Color.clear.frame(width: 118, height: 44)
                 }
 
                 Spacer(minLength: 0)
                 manualButton
             }
         }
+        .frame(height: 44)
         .padding(.horizontal, 18)
     }
 
     private var lensToggle: some View {
-        HStack(spacing: 3) {
+        HStack(spacing: 2) {
             ForEach(PhotoLens.allCases) { lens in
                 Button {
                     camera.setPhotoLens(lens)
                 } label: {
                     Text(lens.title)
-                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .font(.system(size: 12, weight: .bold))
                         .foregroundStyle(
                             camera.photoLens == lens
                                 ? .white
-                                : .white.opacity(0.70)
+                                : .white.opacity(0.68)
                         )
-                        .frame(minWidth: 52, minHeight: 40)
+                        .frame(minWidth: 48, minHeight: 38)
                         .background(
                             camera.photoLens == lens
                                 ? CamProTheme.accent
-                                : Color.clear,
-                            in: Capsule()
+                                : .clear,
+                            in: RoundedRectangle(
+                                cornerRadius: 9,
+                                style: .continuous
+                            )
                         )
                 }
                 .buttonStyle(.plain)
@@ -338,7 +334,14 @@ struct ContentView: View {
             }
         }
         .padding(3)
-        .background(Color.white.opacity(0.10), in: Capsule())
+        .background(.thinMaterial, in: RoundedRectangle(
+            cornerRadius: 12,
+            style: .continuous
+        ))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(.white.opacity(0.16), lineWidth: 1)
+        }
     }
 
     private var zoomButton: some View {
@@ -346,34 +349,45 @@ struct ContentView: View {
             advanceZoom()
         } label: {
             Text("\(camera.zoomFactor, specifier: "%.0f")×")
-                .font(.system(size: 14, weight: .bold, design: .rounded))
+                .font(.system(size: 13, weight: .bold))
                 .foregroundStyle(.white)
-                .frame(minWidth: 64, minHeight: 42)
-                .background(CamProTheme.accent, in: Capsule())
+                .frame(width: 54, height: 42)
+                .background(CamProTheme.accent, in: Circle())
+                .overlay {
+                    Circle()
+                        .stroke(.white.opacity(0.24), lineWidth: 1)
+                }
         }
         .buttonStyle(.plain)
         .accessibilityLabel(
-            "Zoom \(camera.zoomFactor, specifier: "%.0f") times; tap to change"
+            "Software zoom \(camera.zoomFactor, specifier: "%.0f") times; tap to change"
         )
     }
 
     private var manualButton: some View {
         Button {
-            withAnimation(.easeOut(duration: 0.18)) {
+            withAnimation {
                 showManualPanel.toggle()
             }
         } label: {
             Text("Manual")
-                .font(.system(size: 12, weight: .bold, design: .rounded))
-                .tracking(0.4)
+                .font(.system(size: 12, weight: .bold))
+                .tracking(0.3)
                 .foregroundStyle(.white)
-                .frame(width: 72, height: 40)
+                .frame(width: 78, height: 40)
                 .background(
                     showManualPanel || camera.manualControlsEnabled
                         ? CamProTheme.accent
-                        : Color.white.opacity(0.12),
-                    in: Capsule()
+                        : .white.opacity(0.12),
+                    in: RoundedRectangle(
+                        cornerRadius: 11,
+                        style: .continuous
+                    )
                 )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .stroke(.white.opacity(0.14), lineWidth: 1)
+                }
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Manual controls")
@@ -403,17 +417,17 @@ struct ContentView: View {
                             .foregroundStyle(.white.opacity(0.34))
                     }
                 }
-                .frame(width: 56, height: 56)
+                .frame(width: 54, height: 54)
                 .clipShape(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
                 )
                 .background(
-                    Color.white.opacity(0.10),
-                    in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .white.opacity(0.10),
+                    in: RoundedRectangle(cornerRadius: 12, style: .continuous)
                 )
                 .overlay {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(.white.opacity(0.18), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(.white.opacity(0.22), lineWidth: 1)
                 }
             }
             .buttonStyle(.plain)
@@ -424,7 +438,7 @@ struct ContentView: View {
                     : "Open latest photo in Photos"
             )
 
-            Spacer()
+            Spacer(minLength: 0)
 
             Button {
                 camera.capturePhoto()
@@ -447,22 +461,24 @@ struct ContentView: View {
                 camera.isCapturing || !camera.isConfigured || !camera.isRunning
             )
             .scaleEffect(camera.isCapturing ? 0.94 : 1.0)
-            .animation(
-                .easeOut(duration: 0.16),
-                value: camera.isCapturing
-            )
+            .animation(.easeOut(duration: 0.16), value: camera.isCapturing)
             .accessibilityLabel("Shutter")
 
-            Spacer()
-            Color.clear.frame(width: 56, height: 56)
+            Spacer(minLength: 0)
+            Color.clear.frame(width: 54, height: 54)
         }
         .padding(.horizontal, 28)
     }
 
     private var manualPanel: some View {
-        VStack(spacing: 6) {
-            HStack {
+        VStack(spacing: 8) {
+            HStack(spacing: 12) {
+                Text("Manual")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.86))
+
                 Spacer(minLength: 0)
+
                 Toggle(
                     "",
                     isOn: Binding(
@@ -505,16 +521,17 @@ struct ContentView: View {
             )
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.vertical, 10)
+        .frame(maxWidth: 320)
         .background(
-            .thinMaterial,
-            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .ultraThinMaterial,
+            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
         )
         .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(.white.opacity(0.14), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(.white.opacity(0.18), lineWidth: 1)
         }
-        .frame(maxWidth: 320)
+        .padding(.horizontal, 16)
     }
 
     private var permissionCard: some View {
@@ -523,9 +540,9 @@ struct ContentView: View {
                 .font(.system(size: 28))
                 .foregroundStyle(.white)
             Text("Camera access is required")
-                .font(.system(size: 19, weight: .bold, design: .rounded))
+                .font(.system(size: 19, weight: .bold))
             Text("Enable camera access in Settings to capture photos.")
-                .font(.system(size: 14, weight: .regular, design: .rounded))
+                .font(.system(size: 14))
                 .foregroundStyle(.white.opacity(0.7))
                 .multilineTextAlignment(.center)
         }
@@ -536,30 +553,6 @@ struct ContentView: View {
             in: RoundedRectangle(cornerRadius: 24, style: .continuous)
         )
         .padding(28)
-    }
-}
-
-private struct CameraHeaderHeightKey: PreferenceKey {
-    static var defaultValue: CGFloat = 72
-
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
-private struct CameraDockHeightKey: PreferenceKey {
-    static var defaultValue: CGFloat = 210
-
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
-private struct CameraSafeAreaKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
     }
 }
 
@@ -575,9 +568,10 @@ private struct HeaderIconButton: View {
             .background(
                 isSelected
                     ? CamProTheme.accentMuted
-                    : Color.white.opacity(0.11),
+                    : .white.opacity(0.12),
                 in: Circle()
             )
+            .contentShape(Circle())
     }
 }
 
@@ -586,11 +580,15 @@ private struct HeaderTextButton: View {
 
     var body: some View {
         Text(title)
-            .font(.system(size: 11, weight: .bold, design: .rounded))
+            .font(.system(size: 11, weight: .bold))
             .foregroundStyle(.white)
             .frame(minWidth: 44, minHeight: 44)
             .padding(.horizontal, 5)
-            .background(Color.white.opacity(0.11), in: Capsule())
+            .background(.white.opacity(0.12), in: Capsule())
+            .overlay {
+                Capsule()
+                    .stroke(.white.opacity(0.14), lineWidth: 1)
+            }
     }
 }
 
@@ -604,7 +602,7 @@ private struct CameraSliderRow: View {
     var body: some View {
         HStack(spacing: 8) {
             Text(label)
-                .font(.system(size: 10, weight: .bold, design: .rounded))
+                .font(.system(size: 10, weight: .bold))
                 .tracking(0.4)
                 .foregroundStyle(.white.opacity(enabled ? 0.86 : 0.42))
                 .frame(width: 42, alignment: .leading)
@@ -614,7 +612,7 @@ private struct CameraSliderRow: View {
                 .disabled(!enabled)
 
             Text(display(value))
-                .font(.system(size: 10, weight: .bold, design: .rounded))
+                .font(.system(size: 10, weight: .bold))
                 .foregroundStyle(.white.opacity(enabled ? 0.72 : 0.38))
                 .frame(width: 34, alignment: .trailing)
         }
