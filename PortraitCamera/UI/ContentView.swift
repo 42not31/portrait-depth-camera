@@ -10,16 +10,11 @@ struct ContentView: View {
     @State private var focusAnimationID = UUID()
     @State private var showSettings = false
     @State private var showManualPanel = false
-    @State private var headerHeight: CGFloat = 72
-    @State private var dockHeight: CGFloat = 210
-    @State private var bottomSafeAreaInset: CGFloat = 0
+
+    private let glassAccent = Color(red: 1.0, green: 0.86, blue: 0.08)
 
     private var zoomPresets: [CGFloat] {
         camera.captureMode == .photo ? [1.0, 2.0, 3.0, 4.0, 5.0] : [1.0, 2.0]
-    }
-
-    private var isFullBleedPhoto: Bool {
-        camera.captureMode == .photo && camera.photoAspectRatio == .sixteenNine
     }
 
     private var previewAspectRatio: CGFloat {
@@ -38,32 +33,21 @@ struct ContentView: View {
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-
             previewSurface
                 .ignoresSafeArea()
-
-            VStack(spacing: 0) {
-                header
-                Spacer(minLength: 0)
-            }
-
-            if camera.permissionDenied {
-                permissionCard
-            }
+        }
+        .overlay(alignment: .top) {
+            topControlStrip
+                .ignoresSafeArea(edges: .horizontal)
         }
         .overlay(alignment: .bottom) {
-            cameraDock
+            bottomControlSystem
+                .ignoresSafeArea(edges: .horizontal)
                 .zIndex(2)
         }
-        .onPreferenceChange(CameraHeaderHeightKey.self) { headerHeight = $0 }
-        .onPreferenceChange(CameraDockHeightKey.self) { dockHeight = $0 }
-        .onPreferenceChange(CameraSafeAreaKey.self) { bottomSafeAreaInset = $0 }
         .overlay {
-            GeometryReader { proxy in
-                Color.clear.preference(
-                    key: CameraSafeAreaKey.self,
-                    value: proxy.safeAreaInsets.bottom
-                )
+            if camera.permissionDenied {
+                permissionCard
             }
         }
         .task {
@@ -77,110 +61,80 @@ struct ContentView: View {
         }
     }
 
-    private var header: some View {
-        HStack(spacing: 8) {
-            Text("CAMPRO")
-                .font(.system(size: 15, weight: .bold, design: .rounded))
-                .tracking(2.2)
-                .foregroundStyle(.white)
-
-            Spacer(minLength: 8)
-
-            Menu {
-                ForEach(PhotoFlashMode.allCases) { mode in
-                    Button {
-                        camera.setPhotoFlashMode(mode)
-                    } label: {
-                        if camera.photoFlashMode == mode {
-                            Label(mode.title, systemImage: "checkmark")
-                        } else {
-                            Text(mode.title)
-                        }
-                    }
-                }
-            } label: {
-                HeaderIconButton(
-                    systemImage: camera.photoFlashMode == .off ? "bolt.slash.fill" : "bolt.fill",
-                    isSelected: camera.photoFlashMode != .off
-                )
-            }
-            .tint(CamProTheme.accent)
-            .accessibilityLabel("Flash")
-
-            if camera.captureMode == .photo {
+    private var topControlStrip: some View {
+        GeometryReader { proxy in
+            HStack(spacing: 4) {
                 Menu {
-                    ForEach(PhotoAspectRatio.allCases) { ratio in
+                    ForEach(PhotoFlashMode.allCases) { mode in
                         Button {
-                            camera.setPhotoAspectRatio(ratio)
+                            camera.setPhotoFlashMode(mode)
                         } label: {
-                            if camera.photoAspectRatio == ratio {
-                                Label(ratio.title, systemImage: "checkmark")
+                            if camera.photoFlashMode == mode {
+                                Label(mode.title, systemImage: "checkmark")
                             } else {
-                                Text(ratio.title)
+                                Text(mode.title)
                             }
                         }
                     }
                 } label: {
-                    HeaderTextButton(title: camera.photoAspectRatio.title)
+                    GlassIconButton(
+                        systemImage: camera.photoFlashMode == .off
+                            ? "bolt.slash.fill"
+                            : "bolt.fill",
+                        diameter: 46,
+                        isActive: camera.photoFlashMode != .off
+                    )
                 }
-                .tint(CamProTheme.accent)
-                .accessibilityLabel("Photo aspect ratio")
-            }
+                .tint(.white)
+                .accessibilityLabel("Flash")
 
-            Button {
-                showSettings = true
-            } label: {
-                Image(systemName: "slider.horizontal.3")
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.94))
-                    .frame(width: 44, height: 44)
-                    .background(CamProTheme.accentMuted, in: Circle())
+                if camera.captureMode == .photo {
+                    Menu {
+                        ForEach(PhotoAspectRatio.allCases) { ratio in
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.20)) {
+                                    camera.setPhotoAspectRatio(ratio)
+                                }
+                            } label: {
+                                if camera.photoAspectRatio == ratio {
+                                    Label(ratio.title, systemImage: "checkmark")
+                                } else {
+                                    Text(ratio.title)
+                                }
+                            }
+                        }
+                    } label: {
+                        GlassRatioButton(title: camera.photoAspectRatio.title)
+                    }
+                    .tint(.white)
+                    .accessibilityLabel("Photo aspect ratio")
+                }
+
+                Button {
+                    showSettings = true
+                } label: {
+                    GlassIconButton(systemImage: "gearshape", diameter: 46)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Settings")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Settings")
-        }
-        .padding(.horizontal, 18)
-        .padding(.top, 8)
-        .padding(.bottom, 8)
-        .background {
-            GeometryReader { proxy in
-                Color.clear.preference(
-                    key: CameraHeaderHeightKey.self,
-                    value: proxy.size.height
-                )
+            .padding(.horizontal, 10)
+            .frame(height: 58)
+            .background(.thinMaterial, in: Capsule())
+            .overlay {
+                Capsule()
+                    .stroke(.white.opacity(0.18), lineWidth: 0.8)
             }
+            .padding(.top, proxy.safeAreaInsets.top + 12)
+            .frame(maxWidth: .infinity, alignment: .center)
         }
+        .frame(height: 80)
     }
 
     private var previewSurface: some View {
         GeometryReader { proxy in
-            let usableTop = min(max(headerHeight, 0), proxy.size.height)
-            let dockAndSafeBottom = max(dockHeight, 0) + bottomSafeAreaInset
-            let usableBottom = min(
-                dockAndSafeBottom,
-                max(0, proxy.size.height - usableTop)
-            )
-            let usableHeight = max(
-                1,
-                proxy.size.height - usableTop - usableBottom
-            )
-            let fittedWidth = min(
-                proxy.size.width,
-                usableHeight * previewAspectRatio
-            )
-            let fittedHeight = min(
-                usableHeight,
-                proxy.size.width / previewAspectRatio
-            )
-            let previewWidth = isFullBleedPhoto
-                ? proxy.size.width
-                : fittedWidth
-            let previewHeight = isFullBleedPhoto
-                ? proxy.size.height + bottomSafeAreaInset
-                : fittedHeight
-            let previewCenterY = isFullBleedPhoto
-                ? proxy.size.height / 2 + bottomSafeAreaInset / 2
-                : usableTop + usableHeight / 2
+            let fittedWidth = min(proxy.size.width, proxy.size.height * previewAspectRatio)
+            let fittedHeight = min(proxy.size.height, proxy.size.width / previewAspectRatio)
 
             ZStack {
                 Color.black
@@ -198,13 +152,7 @@ struct ContentView: View {
                         focusAnimationID = UUID()
                     }
                 )
-                .frame(width: previewWidth, height: previewHeight)
-                .clipShape(
-                    RoundedRectangle(
-                        cornerRadius: isFullBleedPhoto ? 0 : 24,
-                        style: .continuous
-                    )
-                )
+                .frame(width: fittedWidth, height: fittedHeight)
                 .overlay {
                     if let focusPoint, !camera.manualControlsEnabled {
                         FocusReticle()
@@ -214,147 +162,136 @@ struct ContentView: View {
                 }
                 .position(
                     x: proxy.size.width / 2,
-                    y: previewCenterY
+                    y: proxy.size.height / 2
                 )
+                .animation(.easeInOut(duration: 0.20), value: camera.photoAspectRatio)
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
+            .contentShape(Rectangle())
         }
     }
 
-    private var cameraDock: some View {
-        VStack(spacing: 10) {
-            if showManualPanel {
-                manualPanel
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-
-            modePicker
-            lowerControlRow
-            captureRow
-        }
-        .padding(.top, 10)
-        .padding(.bottom, 12)
-        .background(
-            isFullBleedPhoto
-                ? Color.black.opacity(0.18)
-                : Color.black.opacity(0.82),
-            in: RoundedRectangle(
-                cornerRadius: isFullBleedPhoto ? 0 : 24,
-                style: .continuous
-            )
-        )
-        .padding(.horizontal, isFullBleedPhoto ? 0 : 10)
-        .overlay {
-            GeometryReader { proxy in
-                Color.clear.preference(
-                    key: CameraDockHeightKey.self,
-                    value: proxy.size.height
-                )
-            }
-        }
-    }
-
-    private var modePicker: some View {
-        HStack(spacing: 2) {
-            ForEach(CaptureMode.allCases) { mode in
-                Button {
-                    camera.setCaptureMode(mode)
-                    focusPoint = nil
-                    showManualPanel = false
-                } label: {
-                    Text(mode.title)
-                        .font(.system(size: 12, weight: .bold, design: .rounded))
-                        .tracking(0.5)
-                        .foregroundStyle(
-                            camera.captureMode == mode
-                                ? .white
-                                : .white.opacity(0.66)
-                        )
-                        .frame(maxWidth: .infinity, minHeight: 32)
-                        .background(
-                            camera.captureMode == mode
-                                ? CamProTheme.accent
-                                : Color.clear,
-                            in: Capsule()
-                        )
+    private var bottomControlSystem: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .bottom) {
+                VStack(spacing: 0) {
+                    Color.clear.frame(height: 2)
+                    lowerControlRow
+                    bottomNavigationRow
+                        .padding(.top, 10)
                 }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(
-                    camera.captureMode == mode ? .isSelected : []
-                )
+                .padding(.bottom, proxy.safeAreaInsets.bottom + 8)
+                .frame(maxWidth: .infinity)
+                .background(Color.black.opacity(0.84))
+
+                if showManualPanel {
+                    manualPanel
+                        .padding(.bottom, proxy.safeAreaInsets.bottom + 150)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            .animation(.easeOut(duration: 0.18), value: showManualPanel)
         }
-        .padding(2)
-        .frame(width: 236, height: 36)
-        .background(Color.white.opacity(0.10), in: Capsule())
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Capture mode")
     }
 
     private var lowerControlRow: some View {
-        ZStack {
-            zoomButton
+        HStack(spacing: 0) {
+            lensSwitchButton
+                .frame(maxWidth: .infinity)
 
-            HStack {
-                if camera.captureMode == .photo {
-                    lensToggle
-                } else {
-                    Color.clear.frame(width: 112, height: 44)
-                }
-
-                Spacer(minLength: 0)
-                manualButton
+            VStack(spacing: 5) {
+                zoomButton
+                shutterButton
             }
+            .frame(maxWidth: .infinity)
+
+            manualButton
+                .frame(maxWidth: .infinity)
         }
         .padding(.horizontal, 18)
+        .frame(height: 158)
     }
 
-    private var lensToggle: some View {
-        HStack(spacing: 3) {
-            ForEach(PhotoLens.allCases) { lens in
-                Button {
-                    camera.setPhotoLens(lens)
-                } label: {
-                    Text(lens.title)
-                        .font(.system(size: 13, weight: .bold, design: .rounded))
-                        .foregroundStyle(
-                            camera.photoLens == lens
-                                ? .white
-                                : .white.opacity(0.70)
-                        )
-                        .frame(minWidth: 52, minHeight: 40)
-                        .background(
-                            camera.photoLens == lens
-                                ? CamProTheme.accent
-                                : Color.clear,
-                            in: Capsule()
-                        )
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Photo lens \(lens.title)")
-                .accessibilityAddTraits(
-                    camera.photoLens == lens ? .isSelected : []
-                )
+    private var bottomNavigationRow: some View {
+        HStack(spacing: 0) {
+            latestPhotoButton
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            modePicker
+                .frame(maxWidth: .infinity)
+
+            rotateCameraButton
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .padding(.horizontal, 18)
+        .frame(height: 64)
+    }
+
+    private var lensSwitchButton: some View {
+        Button {
+            guard camera.captureMode == .photo else { return }
+            let nextLens: PhotoLens = camera.photoLens == .wide ? .ultraWide : .wide
+            camera.setPhotoLens(nextLens)
+        } label: {
+            VStack(spacing: 3) {
+                Image(systemName: "camera.aperture")
+                    .font(.system(size: 21, weight: .medium))
+                Text(camera.captureMode == .photo ? camera.photoLens.title : "1×")
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(camera.captureMode == .photo ? glassAccent : .white.opacity(0.45))
+            }
+            .foregroundStyle(.white)
+            .frame(width: 70, height: 70)
+            .background(.thinMaterial, in: Circle())
+            .overlay {
+                Circle()
+                    .stroke(.white.opacity(0.18), lineWidth: 0.8)
             }
         }
-        .padding(3)
-        .background(Color.white.opacity(0.10), in: Capsule())
+        .buttonStyle(.plain)
+        .disabled(camera.captureMode != .photo)
+        .accessibilityLabel("Lens switch")
     }
 
     private var zoomButton: some View {
         Button {
             advanceZoom()
         } label: {
-            Text("\(camera.zoomFactor, specifier: "%.0f")×")
-                .font(.system(size: 14, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
-                .frame(minWidth: 64, minHeight: 42)
-                .background(CamProTheme.accent, in: Capsule())
+            Text("\(camera.zoomFactor, specifier: \"%.0f\")×")
+                .font(.system(size: 19, weight: .medium, design: .rounded))
+                .foregroundStyle(glassAccent)
+                .frame(width: 64, height: 52)
+                .background(.thinMaterial, in: Circle())
+                .overlay {
+                    Circle()
+                        .stroke(.white.opacity(0.13), lineWidth: 0.8)
+                }
         }
         .buttonStyle(.plain)
         .accessibilityLabel(
-            "Zoom \(camera.zoomFactor, specifier: "%.0f") times; tap to change"
+            "Zoom \(camera.zoomFactor, specifier: \"%.0f\") times; tap to change"
         )
+    }
+
+    private var shutterButton: some View {
+        Button {
+            camera.capturePhoto()
+        } label: {
+            ZStack {
+                Circle()
+                    .fill(.white.opacity(0.16))
+                    .frame(width: 84, height: 84)
+                Circle()
+                    .fill(camera.isCapturing ? .white.opacity(0.45) : .white)
+                    .frame(width: 68, height: 68)
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(camera.isCapturing || !camera.isConfigured || !camera.isRunning)
+        .scaleEffect(camera.isCapturing ? 0.94 : 1.0)
+        .animation(.easeOut(duration: 0.16), value: camera.isCapturing)
+        .accessibilityLabel("Shutter")
     }
 
     private var manualButton: some View {
@@ -363,17 +300,15 @@ struct ContentView: View {
                 showManualPanel.toggle()
             }
         } label: {
-            Text("Manual")
-                .font(.system(size: 12, weight: .bold, design: .rounded))
-                .tracking(0.4)
+            Image(systemName: "slider.horizontal.3")
+                .font(.system(size: 23, weight: .medium))
                 .foregroundStyle(.white)
-                .frame(width: 72, height: 40)
-                .background(
-                    showManualPanel || camera.manualControlsEnabled
-                        ? CamProTheme.accent
-                        : Color.white.opacity(0.12),
-                    in: Capsule()
-                )
+                .frame(width: 70, height: 70)
+                .background(.thinMaterial, in: Circle())
+                .overlay {
+                    Circle()
+                        .stroke(.white.opacity(0.18), lineWidth: 0.8)
+                }
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Manual controls")
@@ -387,82 +322,103 @@ struct ContentView: View {
         camera.setZoomFactor(zoomPresets[nextIndex])
     }
 
-    private var captureRow: some View {
-        HStack {
-            Button {
-                camera.openLatestPhotoInPhotos()
-            } label: {
-                Group {
-                    if let image = camera.latestPhotoImage {
-                        Image(uiImage: image)
-                            .resizable()
-                            .scaledToFill()
-                    } else {
-                        Image(systemName: "photo")
-                            .font(.system(size: 18, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.34))
-                    }
-                }
-                .frame(width: 56, height: 56)
-                .clipShape(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                )
-                .background(
-                    Color.white.opacity(0.10),
-                    in: RoundedRectangle(cornerRadius: 14, style: .continuous)
-                )
-                .overlay {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(.white.opacity(0.18), lineWidth: 1)
+    private var latestPhotoButton: some View {
+        Button {
+            camera.openLatestPhotoInPhotos()
+        } label: {
+            Group {
+                if let image = camera.latestPhotoImage {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    Image(systemName: "photo")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.34))
                 }
             }
-            .buttonStyle(.plain)
-            .disabled(camera.latestPhotoImage == nil)
-            .accessibilityLabel(
-                camera.latestPhotoImage == nil
-                    ? "No photo captured yet"
-                    : "Open latest photo in Photos"
-            )
-
-            Spacer()
-
-            Button {
-                camera.capturePhoto()
-            } label: {
-                ZStack {
-                    Circle()
-                        .stroke(.white, lineWidth: 4)
-                        .frame(width: 76, height: 76)
-                    Circle()
-                        .fill(
-                            camera.isCapturing
-                                ? .white.opacity(0.45)
-                                : .white
-                        )
-                        .frame(width: 62, height: 62)
-                }
+            .frame(width: 58, height: 58)
+            .clipShape(Circle())
+            .background(.thinMaterial, in: Circle())
+            .overlay {
+                Circle()
+                    .stroke(.white.opacity(0.20), lineWidth: 0.8)
             }
-            .buttonStyle(.plain)
-            .disabled(
-                camera.isCapturing || !camera.isConfigured || !camera.isRunning
-            )
-            .scaleEffect(camera.isCapturing ? 0.94 : 1.0)
-            .animation(
-                .easeOut(duration: 0.16),
-                value: camera.isCapturing
-            )
-            .accessibilityLabel("Shutter")
-
-            Spacer()
-            Color.clear.frame(width: 56, height: 56)
         }
-        .padding(.horizontal, 28)
+        .buttonStyle(.plain)
+        .disabled(camera.latestPhotoImage == nil)
+        .accessibilityLabel(
+            camera.latestPhotoImage == nil
+                ? "No photo captured yet"
+                : "Open latest photo in Photos"
+        )
+    }
+
+    private var modePicker: some View {
+        HStack(spacing: 2) {
+            ForEach(CaptureMode.allCases) { mode in
+                Button {
+                    camera.setCaptureMode(mode)
+                    focusPoint = nil
+                    showManualPanel = false
+                } label: {
+                    Text(mode.title)
+                        .font(.system(size: 15, weight: .medium, design: .rounded))
+                        .foregroundStyle(
+                            camera.captureMode == mode ? glassAccent : .white.opacity(0.86)
+                        )
+                        .frame(maxWidth: .infinity, minHeight: 46)
+                        .background(
+                            camera.captureMode == mode
+                                ? Color.white.opacity(0.12)
+                                : Color.clear,
+                            in: Capsule()
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(
+                    camera.captureMode == mode ? .isSelected : []
+                )
+            }
+        }
+        .padding(3)
+        .frame(width: 236, height: 54)
+        .background(.thinMaterial, in: Capsule())
+        .overlay {
+            Capsule()
+                .stroke(.white.opacity(0.16), lineWidth: 0.8)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Capture mode")
+    }
+
+    private var rotateCameraButton: some View {
+        Button {
+            // Build 27 intentionally exposes rear-camera capture only. Keep the
+            // supplied control visible while selfie capture remains out of scope.
+        } label: {
+            Image(systemName: "camera.rotate")
+                .font(.system(size: 22, weight: .medium))
+                .foregroundStyle(.white.opacity(0.45))
+                .frame(width: 58, height: 58)
+                .background(.thinMaterial, in: Circle())
+                .overlay {
+                    Circle()
+                        .stroke(.white.opacity(0.12), lineWidth: 0.8)
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Selfie camera unavailable in this build")
     }
 
     private var manualPanel: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 8) {
             HStack {
-                Spacer(minLength: 0)
+                Text("MANUAL")
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .tracking(0.8)
+                    .foregroundStyle(.white.opacity(0.78))
+                Spacer(minLength: 12)
                 Toggle(
                     "",
                     isOn: Binding(
@@ -471,7 +427,7 @@ struct ContentView: View {
                     )
                 )
                 .labelsHidden()
-                .tint(CamProTheme.accent)
+                .tint(glassAccent)
                 .accessibilityLabel("Lock manual settings")
             }
             .frame(height: 28)
@@ -484,10 +440,9 @@ struct ContentView: View {
                         set: { camera.setManualFocusPosition(Float($0)) }
                     ),
                     range: 0...1,
-                    display: { value in
-                        String(format: "%.0f%%", value * 100)
-                    },
-                    enabled: camera.manualControlsEnabled
+                    display: { value in String(format: "%.0f%%", value * 100) },
+                    enabled: camera.manualControlsEnabled,
+                    accent: glassAccent
                 )
             }
 
@@ -498,23 +453,19 @@ struct ContentView: View {
                     set: { camera.setExposureBias(Float($0)) }
                 ),
                 range: -2...2,
-                display: { value in
-                    String(format: "%+.1f", value)
-                },
-                enabled: camera.manualControlsEnabled
+                display: { value in String(format: "%+.1f", value) },
+                enabled: camera.manualControlsEnabled,
+                accent: glassAccent
             )
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(
-            .thinMaterial,
-            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(.white.opacity(0.14), lineWidth: 1)
-        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
         .frame(maxWidth: 320)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(.white.opacity(0.16), lineWidth: 0.8)
+        }
     }
 
     private var permissionCard: some View {
@@ -531,66 +482,40 @@ struct ContentView: View {
         }
         .foregroundStyle(.white)
         .padding(28)
-        .background(
-            .ultraThinMaterial,
-            in: RoundedRectangle(cornerRadius: 24, style: .continuous)
-        )
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .padding(28)
     }
 }
 
-private struct CameraHeaderHeightKey: PreferenceKey {
-    static var defaultValue: CGFloat = 72
-
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
-private struct CameraDockHeightKey: PreferenceKey {
-    static var defaultValue: CGFloat = 210
-
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
-private struct CameraSafeAreaKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
-private struct HeaderIconButton: View {
+private struct GlassIconButton: View {
     let systemImage: String
-    let isSelected: Bool
+    let diameter: CGFloat
+    var isActive = false
 
     var body: some View {
         Image(systemName: systemImage)
-            .font(.system(size: 15, weight: .bold))
+            .font(.system(size: 18, weight: .medium))
             .foregroundStyle(.white)
-            .frame(width: 44, height: 44)
+            .frame(width: diameter, height: diameter)
             .background(
-                isSelected
-                    ? CamProTheme.accentMuted
-                    : Color.white.opacity(0.11),
+                isActive ? Color.white.opacity(0.16) : Color.clear,
                 in: Circle()
             )
     }
 }
 
-private struct HeaderTextButton: View {
+private struct GlassRatioButton: View {
     let title: String
 
     var body: some View {
-        Text(title)
-            .font(.system(size: 11, weight: .bold, design: .rounded))
-            .foregroundStyle(.white)
-            .frame(minWidth: 44, minHeight: 44)
-            .padding(.horizontal, 5)
-            .background(Color.white.opacity(0.11), in: Capsule())
+        VStack(spacing: 1) {
+            Image(systemName: "viewfinder")
+                .font(.system(size: 15, weight: .medium))
+            Text(title)
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+        }
+        .foregroundStyle(.white)
+        .frame(width: 54, height: 46)
     }
 }
 
@@ -600,25 +525,26 @@ private struct CameraSliderRow: View {
     let range: ClosedRange<Double>
     let display: (Double) -> String
     let enabled: Bool
+    let accent: Color
 
     var body: some View {
         HStack(spacing: 8) {
             Text(label)
-                .font(.system(size: 10, weight: .bold, design: .rounded))
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
                 .tracking(0.4)
-                .foregroundStyle(.white.opacity(enabled ? 0.86 : 0.42))
+                .foregroundStyle(.white.opacity(enabled ? 0.86 : 0.46))
                 .frame(width: 42, alignment: .leading)
 
             Slider(value: $value, in: range)
-                .tint(CamProTheme.accent)
+                .tint(accent)
                 .disabled(!enabled)
 
             Text(display(value))
-                .font(.system(size: 10, weight: .bold, design: .rounded))
-                .foregroundStyle(.white.opacity(enabled ? 0.72 : 0.38))
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white.opacity(enabled ? 0.74 : 0.40))
                 .frame(width: 34, alignment: .trailing)
         }
-        .opacity(enabled ? 1.0 : 0.56)
+        .opacity(enabled ? 1.0 : 0.60)
         .frame(minHeight: 32)
     }
 }
