@@ -64,7 +64,7 @@ enum PhotoAspectRatio: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .fourThree: return "4:3"
-        case .sixteenNine: return "16:9"
+        case .sixteenNine: return "9:16"
         case .square: return "1:1"
         }
     }
@@ -72,7 +72,7 @@ enum PhotoAspectRatio: String, CaseIterable, Identifiable {
     var value: CGFloat {
         switch self {
         case .fourThree: return 4.0 / 3.0
-        case .sixteenNine: return 16.0 / 9.0
+        case .sixteenNine: return 9.0 / 16.0
         case .square: return 1.0
         }
     }
