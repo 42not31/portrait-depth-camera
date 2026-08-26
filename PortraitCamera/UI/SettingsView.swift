@@ -1,5 +1,7 @@
 import SwiftUI
 
+// MYVISION implementation: retain the stored preferences while using the same
+// neutral, material-led appearance as the camera’s anchored control menu.
 struct SettingsView: View {
     @ObservedObject var settings: CamProSettings
     @Environment(\.dismiss) private var dismiss
@@ -35,8 +37,8 @@ struct SettingsView: View {
                 }
             }
             .scrollContentBackground(.hidden)
-            .background(Color.black)
-            .foregroundStyle(.white)
+            .background(.thinMaterial)
+            .foregroundStyle(.primary)
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -47,6 +49,6 @@ struct SettingsView: View {
             }
         }
         .tint(CamProTheme.accent)
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(.light)
     }
 }
