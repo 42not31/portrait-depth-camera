@@ -263,7 +263,7 @@ struct ContentView: View {
         Button {
             advanceZoom()
         } label: {
-            Text("\(camera.zoomFactor, specifier: \"%.0f\")×")
+            Text("\(camera.zoomFactor, specifier: "%.0f")×")
                 .font(.system(size: 19, weight: .medium, design: .rounded))
                 .foregroundStyle(glassAccent)
                 .frame(width: 64, height: 52)
@@ -275,7 +275,7 @@ struct ContentView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(
-            "Zoom \(camera.zoomFactor, specifier: \"%.0f\") times; tap to change"
+            "Zoom \(camera.zoomFactor, specifier: "%.0f") times; tap to change"
         )
     }
 
