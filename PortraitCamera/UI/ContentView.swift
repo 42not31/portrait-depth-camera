@@ -51,7 +51,6 @@ struct ContentView: View {
         ZStack {
             Color.black.ignoresSafeArea()
             previewSurface
-                .ignoresSafeArea()
         }
         .overlay(alignment: .top) {
             topControlBar
@@ -94,12 +93,12 @@ struct ContentView: View {
                 }
             } label: {
                 TopControlIcon(
-                    systemImage: camera.photoFlashMode == .off ? "bolt.slash" : "bolt.fill",
+                    systemImage: camera.photoFlashMode == .off ? "bolt.slash" : "bolt",
                     accessibilityLabel: "Flash"
                 )
             }
             .tint(.white)
-            .frame(maxWidth: .infinity)
+            .frame(width: 58)
 
             topSeparator
 
@@ -122,14 +121,10 @@ struct ContentView: View {
                     AspectRatioControl(title: aspectRatioDisplayTitle)
                 }
                 .tint(.white)
-                .frame(maxWidth: .infinity)
-            } else {
-                AspectRatioControl(title: "4:3")
-                    .frame(maxWidth: .infinity)
-                    .opacity(0.45)
-            }
+                .frame(width: 58)
 
-            topSeparator
+                topSeparator
+            }
 
             Button {
                 showSettings = true
@@ -140,10 +135,13 @@ struct ContentView: View {
                 )
             }
             .buttonStyle(.plain)
-            .frame(maxWidth: .infinity)
+            .frame(width: 58)
         }
-        .frame(width: 320, height: 58)
-        .background(.thinMaterial, in: Capsule())
+        .frame(
+            width: camera.captureMode == .photo ? 176 : 117,
+            height: 44
+        )
+        .background(.ultraThinMaterial, in: Capsule())
         .overlay {
             Capsule()
                 .stroke(glassBorder, lineWidth: 0.8)
@@ -221,7 +219,7 @@ struct ContentView: View {
 
     private var lowerControlRow: some View {
         HStack(spacing: 0) {
-            lensSwitchButton
+            leftCaptureControl
                 .frame(maxWidth: .infinity)
 
             VStack(spacing: 5) {
@@ -230,7 +228,7 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity)
 
-            manualButton
+            rightCaptureControl
                 .frame(maxWidth: .infinity)
         }
         .padding(.horizontal, 18)
@@ -249,7 +247,61 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(.horizontal, 18)
-        .frame(height: 76)
+        .frame(height: 68)
+    }
+
+    @ViewBuilder
+    private var leftCaptureControl: some View {
+        if camera.captureMode == .portrait {
+            portraitDepthButton
+        } else {
+            lensSwitchButton
+        }
+    }
+
+    @ViewBuilder
+    private var rightCaptureControl: some View {
+        if camera.captureMode == .portrait {
+            portraitExposureButton
+        } else {
+            manualButton
+        }
+    }
+
+    private var portraitDepthButton: some View {
+        Button {
+            // Reserved for the future Portrait depth-effect control.
+        } label: {
+            Image(systemName: "circle.lefthalf.filled")
+                .font(.system(size: 27, weight: .regular))
+                .foregroundStyle(.white)
+                .frame(width: 64, height: 64)
+                .background(.ultraThinMaterial, in: Circle())
+                .overlay {
+                    Circle()
+                        .stroke(glassBorder, lineWidth: 0.8)
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Depth effect settings")
+    }
+
+    private var portraitExposureButton: some View {
+        Button {
+            // Reserved for the future Portrait exposure control.
+        } label: {
+            Image(systemName: "f.cursive")
+                .font(.system(size: 28, weight: .regular))
+                .foregroundStyle(.white)
+                .frame(width: 64, height: 64)
+                .background(.ultraThinMaterial, in: Circle())
+                .overlay {
+                    Circle()
+                        .stroke(glassBorder, lineWidth: 0.8)
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Exposure control")
     }
 
     private var lensSwitchButton: some View {
@@ -261,8 +313,8 @@ struct ContentView: View {
             Image(systemName: "arrow.triangle.2.circlepath")
                 .font(.system(size: 25, weight: .regular))
                 .foregroundStyle(.white)
-                .frame(width: 72, height: 72)
-                .background(.thinMaterial, in: Circle())
+                .frame(width: 64, height: 64)
+                .background(.ultraThinMaterial, in: Circle())
                 .overlay {
                     Circle()
                         .stroke(glassBorder, lineWidth: 0.8)
@@ -281,8 +333,8 @@ struct ContentView: View {
             Text("\(camera.zoomFactor, specifier: "%.0f")×")
                 .font(.system(size: 18, weight: .semibold, design: .default))
                 .foregroundStyle(cameraYellow)
-                .frame(width: 58, height: 50)
-                .background(.thinMaterial, in: Circle())
+                .frame(width: 48, height: 48)
+                .background(.ultraThinMaterial, in: Circle())
                 .overlay {
                     Circle()
                         .stroke(Color.white.opacity(0.20), lineWidth: 1.0)
@@ -304,7 +356,7 @@ struct ContentView: View {
                     .frame(width: 82, height: 82)
                 Circle()
                     .fill(camera.isCapturing ? Color.white.opacity(0.45) : .white)
-                    .frame(width: 68, height: 68)
+                    .frame(width: 66, height: 66)
             }
         }
         .buttonStyle(.plain)
@@ -323,8 +375,8 @@ struct ContentView: View {
             Image(systemName: "slider.horizontal.3")
                 .font(.system(size: 24, weight: .regular))
                 .foregroundStyle(.white)
-                .frame(width: 72, height: 72)
-                .background(.thinMaterial, in: Circle())
+                .frame(width: 64, height: 64)
+                .background(.ultraThinMaterial, in: Circle())
                 .overlay {
                     Circle()
                         .stroke(glassBorder, lineWidth: 0.8)
@@ -357,7 +409,7 @@ struct ContentView: View {
             }
             .frame(width: 58, height: 58)
             .clipShape(Circle())
-            .background(Color.white.opacity(0.08), in: Circle())
+            .background(Color.white.opacity(0.03), in: Circle())
             .overlay {
                 Circle()
                     .stroke(glassBorder, lineWidth: 0.8)
@@ -382,7 +434,7 @@ struct ContentView: View {
             modeButton(.portrait)
         }
         .padding(.horizontal, 3)
-        .frame(width: 236, height: 54)
+        .frame(width: 190, height: 46)
         .background(.thinMaterial, in: Capsule())
         .overlay {
             Capsule()
@@ -399,7 +451,7 @@ struct ContentView: View {
             showManualPanel = false
         } label: {
             Text(mode.title.uppercased())
-                .font(.system(size: 15, weight: .medium, design: .default))
+                .font(.system(size: 15, weight: .semibold, design: .default))
                 .foregroundStyle(
                     camera.captureMode == mode ? cameraYellow : .white.opacity(0.90)
                 )
@@ -418,8 +470,8 @@ struct ContentView: View {
             Image(systemName: "arrow.triangle.2.circlepath")
                 .font(.system(size: 25, weight: .regular))
                 .foregroundStyle(.white.opacity(0.46))
-                .frame(width: 58, height: 58)
-                .background(.thinMaterial, in: Circle())
+                .frame(width: 54, height: 54)
+                .background(.ultraThinMaterial, in: Circle())
                 .overlay {
                     Circle()
                         .stroke(Color.white.opacity(0.14), lineWidth: 0.8)
@@ -511,9 +563,9 @@ private struct TopControlIcon: View {
 
     var body: some View {
         Image(systemName: systemImage)
-            .font(.system(size: 22, weight: .regular))
+            .font(.system(size: 20, weight: .regular))
             .foregroundStyle(.white)
-            .frame(width: 72, height: 52)
+            .frame(width: 58, height: 42)
             .contentShape(Rectangle())
             .accessibilityLabel(accessibilityLabel)
     }
