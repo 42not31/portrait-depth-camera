@@ -2,10 +2,9 @@ import AVFoundation
 import SwiftUI
 import UIKit
 
-// Build 51 camera surface: the complete Build 47 MYVISION screen remains authoritative.
-// The final green-marked Apple comparisons lower both preview frames slightly, raise the
-// capture row, reduce its shutter, and lower the separate final navigation row. No camera
-// behavior or Build 48 visual rule is retained.
+// Build 52 camera surface: the complete Build 47 MYVISION screen and Build 51 geometry
+// remain authoritative. The live preview retains the marked 4:3 / 9:16 placement, compact
+// capture row, and separate final navigation row while this screen exposes front-camera state.
 
 struct ContentView: View {
     @ObservedObject var camera: CameraModel
@@ -25,7 +24,17 @@ struct ContentView: View {
     private let previewLowerBoundaryOffset: CGFloat = 16
 
     private var zoomPresets: [CGFloat] {
+        if camera.isUsingFrontCamera {
+            return camera.captureMode == .photo ? [1.0, 2.0] : [1.0, 1.5]
+        }
         camera.captureMode == .photo ? [1.0, 2.0, 3.0, 4.0, 5.0] : [1.0, 2.0]
+    }
+
+    private var zoomTitle: String {
+        let isWholeNumber = abs(camera.zoomFactor.rounded() - camera.zoomFactor) < 0.01
+        return isWholeNumber
+            ? String(format: "%.0f×", camera.zoomFactor)
+            : String(format: "%.1f×", camera.zoomFactor)
     }
 
     private var previewAspectRatio: CGFloat {
@@ -45,13 +54,18 @@ struct ContentView: View {
     }
 
     private var visibleMenuItems: [CameraMenuItem] {
+        if camera.isUsingFrontCamera {
+            return camera.captureMode == .photo
+                ? [.aspectRatio, .exposure, .settings]
+                : [.exposure, .settings]
+        }
         camera.captureMode == .photo
             ? [.focus, .lens, .aspectRatio, .flash, .exposure, .settings]
             : [.depth, .flash, .exposure, .settings]
     }
 
     private var isFocusSupported: Bool {
-        camera.captureMode == .photo && camera.photoLens == .wide
+        !camera.isUsingFrontCamera && camera.captureMode == .photo && camera.photoLens == .wide
     }
 
     var body: some View {
@@ -78,7 +92,13 @@ struct ContentView: View {
                 permissionCard
             }
         }
-        .task { camera.start() }
+        .task {
+            camera.setFrontCameraMirroring(settings.mirrorFrontCamera)
+            camera.start()
+        }
+        .onChange(of: settings.mirrorFrontCamera) { enabled in
+            camera.setFrontCameraMirroring(enabled)
+        }
         .onDisappear { camera.stop() }
         .sheet(isPresented: $showSettings) {
             SettingsView(settings: settings)
@@ -112,6 +132,7 @@ struct ContentView: View {
                     zoomFactor: camera.zoomFactor,
                     deviceZoomFactor: camera.deviceZoomFactor,
                     videoOrientation: .portrait,
+                    isMirrored: camera.isUsingFrontCamera && settings.mirrorFrontCamera,
                     onTap: { viewPoint, devicePoint in
                         guard !camera.manualControlsEnabled else { return }
                         camera.focus(at: devicePoint)
@@ -201,7 +222,7 @@ struct ContentView: View {
 
     private var zoomButton: some View {
         Button(action: advanceZoom) {
-            Text("\(camera.zoomFactor, specifier: "%.0f")×")
+            Text(zoomTitle)
                 .font(.system(size: 15, weight: .semibold, design: .rounded))
                 .foregroundStyle(Color.white)
                 .frame(width: 48, height: 48)
@@ -209,7 +230,7 @@ struct ContentView: View {
                 .overlay { Circle().stroke(glassBorder, lineWidth: 0.8) }
         }
         .buttonStyle(CameraPressStyle())
-        .accessibilityLabel("Zoom \(camera.zoomFactor, specifier: "%.0f") times; tap to change")
+        .accessibilityLabel("Zoom \(zoomTitle); tap to change")
     }
 
     private var shutterButton: some View {
@@ -562,7 +583,9 @@ struct ContentView: View {
 
     private var rotateCameraButton: some View {
         Button {
-            // Reference icon remains visible. The protected camera path remains rear-only.
+            camera.toggleCamera()
+            focusPoint = nil
+            dismissMenu()
         } label: {
             Image(systemName: "camera.rotate")
                 .font(.system(size: 21, weight: .regular))
@@ -572,7 +595,9 @@ struct ContentView: View {
                 .overlay { Circle().stroke(glassBorder, lineWidth: 0.8) }
         }
         .buttonStyle(CameraPressStyle())
-        .accessibilityLabel("Selfie camera unavailable in this build")
+        .disabled(camera.isCapturing || !camera.isConfigured || !camera.isRunning)
+        .opacity(camera.isCapturing || !camera.isConfigured || !camera.isRunning ? 0.58 : 1)
+        .accessibilityLabel(camera.isUsingFrontCamera ? "Switch to rear camera" : "Switch to selfie camera")
     }
 
     private var permissionCard: some View {
