@@ -26,6 +26,7 @@ final class CameraModel: NSObject, ObservableObject {
     @Published private(set) var latestPhotoAssetIdentifier: String?
     @Published private(set) var depthCaptureAvailable = false
     @Published private(set) var portraitMatteAvailable = false
+    @Published private(set) var depthAperture: CGFloat = 2.8
     @Published private(set) var isUsingFrontCamera = false
     @Published var permissionDenied = false
     @Published var statusMessage: String?
@@ -42,10 +43,13 @@ final class CameraModel: NSObject, ObservableObject {
     private var activeCaptureMode: CaptureMode = .portrait
     private var activeCaptureAspectRatio: PhotoAspectRatio = .fourThree
     private var activeCaptureFlashMode: PhotoFlashMode = .off
+    private var activeCaptureAperture: CGFloat = 2.8
     private var activeVideoOrientation: AVCaptureVideoOrientation = .portrait
     private var activeCameraPosition: AVCaptureDevice.Position = .back
     private var mirrorFrontCamera = true
     private var orientationObserver: NSObjectProtocol?
+    private var backgroundObserver: NSObjectProtocol?
+    private var foregroundObserver: NSObjectProtocol?
 
     override init() {
         super.init()
@@ -58,12 +62,22 @@ final class CameraModel: NSObject, ObservableObject {
         ) { [weak self] _ in
             self?.updateOrientation(for: UIDevice.current.orientation)
         }
+        backgroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in self?.stop() }
+        foregroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in self?.start() }
     }
 
     deinit {
-        if let orientationObserver {
-            NotificationCenter.default.removeObserver(orientationObserver)
-        }
+        if let orientationObserver { NotificationCenter.default.removeObserver(orientationObserver) }
+        if let backgroundObserver { NotificationCenter.default.removeObserver(backgroundObserver) }
+        if let foregroundObserver { NotificationCenter.default.removeObserver(foregroundObserver) }
         UIDevice.current.endGeneratingDeviceOrientationNotifications()
     }
 
@@ -98,6 +112,7 @@ final class CameraModel: NSObject, ObservableObject {
         let requestedMode = captureMode
         let requestedAspectRatio = photoAspectRatio
         let requestedFlashMode = photoFlashMode
+        let requestedDepthAperture = depthAperture
 
         sessionQueue.async { [weak self] in
             guard let self else { return }
@@ -117,6 +132,7 @@ final class CameraModel: NSObject, ObservableObject {
             self.activeCaptureMode = requestedMode
             self.activeCaptureAspectRatio = requestedAspectRatio
             self.activeCaptureFlashMode = requestedFlashMode
+            self.activeCaptureAperture = requestedDepthAperture
             DispatchQueue.main.async { self.isCapturing = true }
             self.captureSinglePhoto(
                 includePortraitData: requestedMode == .portrait,
@@ -224,6 +240,11 @@ final class CameraModel: NSObject, ObservableObject {
     func setPhotoAspectRatio(_ ratio: PhotoAspectRatio) {
         guard captureMode == .photo else { return }
         DispatchQueue.main.async { [weak self] in self?.photoAspectRatio = ratio }
+    }
+
+    func setDepthAperture(_ aperture: CGFloat) {
+        let clamped = min(max(aperture, 1.4), 16.0)
+        DispatchQueue.main.async { [weak self] in self?.depthAperture = clamped }
     }
 
     func toggleCamera() {
@@ -645,16 +666,15 @@ final class CameraModel: NSObject, ObservableObject {
         for photo: AVCapturePhoto,
         factor: CGFloat,
         includePortraitData: Bool,
-        aspectRatio: PhotoAspectRatio
+        aspectRatio: PhotoAspectRatio,
+        aperture: CGFloat
     ) -> Data? {
-        guard factor > 1.01 || aspectRatio != .fourThree else {
-            return includePortraitData
-                ? (portraitEnabledFileData(for: photo) ?? photo.fileDataRepresentation())
-                : photo.fileDataRepresentation()
+        guard factor > 1.01 || aspectRatio != .fourThree || includePortraitData else {
+            return photo.fileDataRepresentation()
         }
         guard let primaryImage = photo.cgImageRepresentation() else {
             return includePortraitData
-                ? (portraitEnabledFileData(for: photo) ?? photo.fileDataRepresentation())
+                ? (portraitEnabledFileData(for: photo, aperture: aperture) ?? photo.fileDataRepresentation())
                 : photo.fileDataRepresentation()
         }
 
@@ -674,6 +694,10 @@ final class CameraModel: NSObject, ObservableObject {
             cropHeight = sourceAspectRatio / targetAspectRatio
         }
 
+        let processedImage = includePortraitData
+            ? (depthEffectImage(from: primaryImage, photo: photo, aperture: aperture) ?? primaryImage)
+            : primaryImage
+
         let zoomScale = max(1.0 / factor, 0.05)
         cropWidth *= zoomScale
         cropHeight *= zoomScale
@@ -692,9 +716,9 @@ final class CameraModel: NSObject, ObservableObject {
             height: CGFloat(primaryImage.height) * normalizedCrop.height
         ).integral
 
-        guard let croppedImage = primaryImage.cropping(to: cropRect) else {
+        guard let croppedImage = processedImage.cropping(to: cropRect) else {
             return includePortraitData
-                ? (portraitEnabledFileData(for: photo) ?? photo.fileDataRepresentation())
+                ? (portraitEnabledFileData(for: photo, aperture: aperture) ?? photo.fileDataRepresentation())
                 : photo.fileDataRepresentation()
         }
 
@@ -744,17 +768,32 @@ final class CameraModel: NSObject, ObservableObject {
             // Never discard a genuine Portrait capture merely because a
             // derivative software crop could not be packaged on this OS.
             return includePortraitData
-                ? (portraitEnabledFileData(for: photo) ?? photo.fileDataRepresentation())
+                ? (portraitEnabledFileData(for: photo, aperture: aperture) ?? photo.fileDataRepresentation())
                 : photo.fileDataRepresentation()
         }
         return croppedData
     }
 
-    private func portraitEnabledFileData(for photo: AVCapturePhoto) -> Data? {
+    private func depthEffectImage(from image: CGImage, photo: AVCapturePhoto, aperture: CGFloat) -> CGImage? {
+        guard aperture < 15.95, let depth = photo.depthData else { return nil }
+        guard let filter = CIFilter(name: "CIDepthOfField") else { return nil }
+        let inputImage = CIImage(cgImage: image)
+        let disparityImage = CIImage(cvPixelBuffer: depth.depthDataMap)
+        let normalizedStrength = max(0, min(1, (16.0 - aperture) / 14.6))
+        filter.setValue(inputImage, forKey: kCIInputImageKey)
+        filter.setValue(disparityImage, forKey: "inputDisparityImage")
+        filter.setValue(CIVector(x: inputImage.extent.midX, y: inputImage.extent.midY), forKey: "inputPoint0")
+        filter.setValue(NSNumber(value: Float(normalizedStrength * 18.0)), forKey: "inputRadius")
+        guard let output = filter.outputImage else { return nil }
+        return ciContext.createCGImage(output, from: inputImage.extent)
+    }
+
+    private func portraitEnabledFileData(for photo: AVCapturePhoto, aperture: CGFloat) -> Data? {
         guard let image = photo.cgImageRepresentation() else { return nil }
+        let outputImage = depthEffectImage(from: image, photo: photo, aperture: aperture) ?? image
         let originalMetadata = photo.metadata
         let originalMakerApple = originalMetadata[kCGImagePropertyMakerAppleDictionary as String] as? [String: Any]
-        if originalMakerApple?["25"] != nil {
+        if originalMakerApple?["25"] != nil, aperture >= 15.95 {
             return photo.fileDataRepresentation()
         }
         let metadata = portraitEnabledMetadata(from: originalMetadata)
@@ -787,7 +826,7 @@ final class CameraModel: NSObject, ObservableObject {
 
         guard depthAuxiliaryInfo != nil || matteAuxiliaryInfo != nil else { return nil }
         return packageImage(
-            image,
+            outputImage,
             metadata: metadata,
             depthAuxiliaryInfo: depthAuxiliaryInfo,
             matteAuxiliaryInfo: matteAuxiliaryInfo
@@ -983,7 +1022,8 @@ extension CameraModel: AVCapturePhotoCaptureDelegate {
             for: photo,
             factor: zoom,
             includePortraitData: includePortraitData,
-            aspectRatio: aspectRatio
+            aspectRatio: aspectRatio,
+            aperture: activeCaptureAperture
         ) else {
             finishCapture(with: "Could not create the photo file")
             return

@@ -5,17 +5,19 @@
     <key>CFBundleExecutable</key>
     <string>$(EXECUTABLE_NAME)</string>
     <key>CFBundleDisplayName</key>
-    <string>CamPro</string>
+    <string>CamPro Beta</string>
     <key>CFBundleIdentifier</key>
     <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
     <key>CFBundleName</key>
-    <string>CamPro</string>
+    <string>CamPro Beta</string>
+    <key>CAMPRO_BUILD_NAME</key>
+    <string>Build 54</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
     <string>1.0</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>54</string>
     <key>LSRequiresIPhoneOS</key>
     <true/>
     <key>NSCameraUsageDescription</key>

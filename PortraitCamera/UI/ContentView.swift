@@ -22,6 +22,8 @@ struct ContentView: View {
     private let captureControlRowOffset: CGFloat = -8
     private let navigationRowOffset: CGFloat = 8
     private let previewLowerBoundaryOffset: CGFloat = 16
+    private let depthApertureRange: ClosedRange<Double> = 1.4...16.0
+    @State private var frontWideMode = true
 
     private var zoomPresets: [CGFloat] {
         if camera.isUsingFrontCamera {
@@ -54,14 +56,18 @@ struct ContentView: View {
     }
 
     private var visibleMenuItems: [CameraMenuItem] {
+        let allowed: Set<CameraMenuItem>
         if camera.isUsingFrontCamera {
-            return camera.captureMode == .photo
-                ? [.aspectRatio, .exposure, .settings]
-                : [.exposure, .settings]
+            allowed = camera.captureMode == .photo
+                ? [.aspectRatio, .flash, .exposure, .settings]
+                : [.depth, .flash, .exposure, .settings]
+        } else {
+            allowed = camera.captureMode == .photo
+                ? [.focus, .lens, .aspectRatio, .flash, .exposure, .settings]
+                : [.depth, .flash, .exposure, .settings]
         }
-        return camera.captureMode == .photo
-            ? [.focus, .lens, .aspectRatio, .flash, .exposure, .settings]
-            : [.depth, .flash, .exposure, .settings]
+        let ordered = settings.menuOrder.compactMap(CameraMenuItem.init(rawValue:)).filter { allowed.contains($0) }
+        return ordered.isEmpty ? Array(allowed) : ordered
     }
 
     private var isFocusSupported: Bool {
@@ -99,6 +105,13 @@ struct ContentView: View {
         .onChange(of: settings.mirrorFrontCamera) { enabled in
             camera.setFrontCameraMirroring(enabled)
         }
+        .onChange(of: camera.isUsingFrontCamera) { isFront in
+            if isFront && camera.captureMode == .photo {
+                frontWideMode = settings.frontPhotoWideByDefault
+                camera.setZoomFactor(frontWideMode ? 1.0 : 1.8)
+            }
+        }
+        .idleTimerDisabled(settings.keepScreenAwake)
         .onDisappear { camera.stop() }
         .sheet(isPresented: $showSettings) {
             SettingsView(settings: settings)
@@ -143,10 +156,27 @@ struct ContentView: View {
                 .frame(width: proxy.size.width, height: previewHeight)
                 .clipShape(Rectangle())
                 .overlay {
-                    if let focusPoint, !camera.manualControlsEnabled {
+                    if settings.showGrid {
+                        GridOverlay().allowsHitTesting(false)
+                    }
+                    if let focusPoint, !camera.manualControlsEnabled && settings.showFocusReticle {
                         FocusReticle()
                             .id(focusAnimationID)
                             .position(focusPoint)
+                    }
+                    if camera.captureMode == .portrait && settings.showDepthIndicator && camera.depthCaptureAvailable {
+                        VStack {
+                            Text(String(format: "f/%.1f", camera.depthAperture))
+                                .font(.system(size: 14, weight: .bold, design: .rounded))
+                                .monospacedDigit()
+                                .foregroundStyle(.yellow)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(.ultraThinMaterial, in: Capsule())
+                                .overlay { Capsule().stroke(Color.white.opacity(0.28), lineWidth: 0.7) }
+                                .padding(.top, 12)
+                            Spacer()
+                        }
                     }
                 }
                 .frame(
@@ -191,13 +221,16 @@ struct ContentView: View {
             .frame(height: 112)
 
             if isMenuOpen {
-                VStack(alignment: .trailing, spacing: 8) {
-                    activeControlDetail
-                    controlMenu
-                }
-                .padding(.trailing, 16)
-                .padding(.bottom, 8)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                controlMenu
+                    .padding(.trailing, 16)
+                    .padding(.bottom, 8)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+            if activeMenuItem != nil && !isMenuOpen {
+                activeControlDetail
+                    .padding(.trailing, 16)
+                    .padding(.bottom, 8)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
         .frame(maxWidth: .infinity, minHeight: 112)
@@ -210,8 +243,14 @@ struct ContentView: View {
             latestPhotoButton
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            modePicker
-                .frame(maxWidth: .infinity)
+            ZStack(alignment: .top) {
+                modePicker
+                if camera.isUsingFrontCamera && camera.captureMode == .photo {
+                    frontWideToggle
+                        .offset(y: -22)
+                }
+            }
+            .frame(maxWidth: .infinity)
 
             rotateCameraButton
                 .frame(maxWidth: .infinity, alignment: .trailing)
@@ -281,32 +320,24 @@ struct ContentView: View {
                     .tracking(0.9)
                     .foregroundStyle(Color.primary.opacity(0.55))
                 Spacer()
-                Button(action: dismissMenu) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .bold))
-                        .frame(width: 28, height: 28)
-                        .background(Color.primary.opacity(0.08), in: Circle())
-                }
-                .buttonStyle(CameraPressStyle())
-                .accessibilityLabel("Close camera menu")
+                EmptyView()
             }
             .padding(.leading, 12)
             .padding(.trailing, 5)
             .frame(height: 34)
 
             ForEach(visibleMenuItems) { item in
-                Button {
-                    performMenuAction(item)
-                } label: {
+                Button { performMenuAction(item) } label: {
                     CameraMenuRow(
                         item: item,
                         valueText: menuValueText(item),
                         isSelected: activeMenuItem == item,
-                        isUnavailable: item == .depth
+                        isUnavailable: item == .depth && !camera.depthCaptureAvailable,
+                        displayStyle: settings.menuDisplayStyle
                     )
                 }
                 .buttonStyle(CameraPressStyle())
-                .disabled(item == .depth)
+                .disabled(item == .depth && !camera.depthCaptureAvailable)
                 .accessibilityLabel(item.accessibilityLabel)
             }
         }
@@ -334,7 +365,9 @@ struct ContentView: View {
                 flashControlDetail
             case .exposure:
                 exposureControlDetail
-            case .depth, .settings:
+            case .depth:
+                depthControlDetail
+            case .settings:
                 EmptyView()
             }
         }
@@ -412,6 +445,39 @@ struct ContentView: View {
         }
     }
 
+    private var depthControlDetail: some View {
+        CameraControlDetail(title: "Depth", onClose: { activeMenuItem = nil }) {
+            HStack(spacing: 10) {
+                Text(String(format: "f/%.1f", camera.depthAperture))
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                Spacer(minLength: 0)
+                Button {
+                    camera.setDepthAperture(2.8)
+                } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(width: 30, height: 30)
+                        .background(Color.primary.opacity(0.08), in: Circle())
+                }
+                .buttonStyle(CameraPressStyle())
+                .accessibilityLabel("Reset depth aperture")
+            }
+            Slider(
+                value: Binding(
+                    get: { Double(camera.depthAperture) },
+                    set: { camera.setDepthAperture(CGFloat($0)) }
+                ),
+                in: depthApertureRange,
+                step: 0.1
+            )
+            .tint(activeYellow)
+            Text("Lower f-number = stronger background blur")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Color.primary.opacity(0.58))
+        }
+    }
+
     private var exposureControlDetail: some View {
         CameraControlDetail(title: "Exposure", onClose: { activeMenuItem = nil }) {
             HStack(spacing: 10) {
@@ -478,7 +544,7 @@ struct ContentView: View {
         case .exposure:
             return camera.manualControlsEnabled ? String(format: "%+.1f", camera.exposureBias) : "AUTO"
         case .depth:
-            return "FUTURE"
+            return camera.depthCaptureAvailable ? String(format: "f/%.1f", camera.depthAperture) : "UNAVAILABLE"
         case .settings:
             return nil
         }
@@ -490,25 +556,40 @@ struct ContentView: View {
             dismissMenu()
             showSettings = true
         case .depth:
-            return
-        case .focus:
-            if isFocusSupported && !camera.manualControlsEnabled {
-                camera.setManualControlsEnabled(true)
+            withAnimation(.easeOut(duration: 0.18)) {
+                isMenuOpen = false
+                activeMenuItem = item
             }
-            withAnimation(.easeOut(duration: 0.16)) {
-                activeMenuItem = activeMenuItem == item ? nil : item
+        case .focus:
+            if isFocusSupported && !camera.manualControlsEnabled { camera.setManualControlsEnabled(true) }
+            withAnimation(.easeOut(duration: 0.18)) {
+                isMenuOpen = false
+                activeMenuItem = item
             }
         case .exposure:
-            if !camera.manualControlsEnabled {
-                camera.setManualControlsEnabled(true)
+            if !camera.manualControlsEnabled { camera.setManualControlsEnabled(true) }
+            withAnimation(.easeOut(duration: 0.18)) {
+                isMenuOpen = false
+                activeMenuItem = item
             }
-            withAnimation(.easeOut(duration: 0.16)) {
-                activeMenuItem = activeMenuItem == item ? nil : item
+        case .flash:
+            let modes = PhotoFlashMode.allCases
+            if let index = modes.firstIndex(of: camera.photoFlashMode) {
+                camera.setPhotoFlashMode(modes[(index + 1) % modes.count])
             }
-        default:
-            withAnimation(.easeOut(duration: 0.16)) {
-                activeMenuItem = activeMenuItem == item ? nil : item
+            dismissMenu()
+        case .aspectRatio:
+            let ratios = PhotoAspectRatio.allCases
+            if let index = ratios.firstIndex(of: camera.photoAspectRatio) {
+                camera.setPhotoAspectRatio(ratios[(index + 1) % ratios.count])
             }
+            dismissMenu()
+        case .lens:
+            let lenses = PhotoLens.allCases
+            if let index = lenses.firstIndex(of: camera.photoLens) {
+                camera.setPhotoLens(lenses[(index + 1) % lenses.count])
+            }
+            dismissMenu()
         }
     }
 
@@ -581,6 +662,29 @@ struct ContentView: View {
         .accessibilityAddTraits(camera.captureMode == mode ? .isSelected : [])
     }
 
+    private var frontWideToggle: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                frontWideMode.toggle()
+                camera.setZoomFactor(frontWideMode ? 1.0 : 1.8)
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: frontWideMode ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                    .font(.system(size: 12, weight: .semibold))
+                Text(frontWideMode ? "0.5" : "1×")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+            }
+            .foregroundStyle(Color.white)
+            .padding(.horizontal, 9)
+            .frame(height: 28)
+            .background(.ultraThinMaterial, in: Capsule())
+            .overlay { Capsule().stroke(glassBorder, lineWidth: 0.8) }
+        }
+        .buttonStyle(CameraPressStyle())
+        .accessibilityLabel(frontWideMode ? "Front camera wide view; tap for 1× crop" : "Front camera 1× crop; tap for wide view")
+    }
+
     private var rotateCameraButton: some View {
         Button {
             camera.toggleCamera()
@@ -618,7 +722,25 @@ struct ContentView: View {
     }
 }
 
-private enum CameraMenuItem: String, CaseIterable, Identifiable {
+private struct GridOverlay: View {
+    var body: some View {
+        GeometryReader { proxy in
+            Path { path in
+                let column = proxy.size.width / 3
+                let row = proxy.size.height / 3
+                for index in 1...2 {
+                    path.move(to: CGPoint(x: column * CGFloat(index), y: 0))
+                    path.addLine(to: CGPoint(x: column * CGFloat(index), y: proxy.size.height))
+                    path.move(to: CGPoint(x: 0, y: row * CGFloat(index)))
+                    path.addLine(to: CGPoint(x: proxy.size.width, y: row * CGFloat(index)))
+                }
+            }
+            .stroke(Color.white.opacity(0.3), lineWidth: 0.7)
+        }
+    }
+}
+
+private enum CameraMenuItem: String, CaseIterable, Identifiable, Hashable {
     case focus
     case lens
     case aspectRatio
@@ -649,12 +771,12 @@ private enum CameraMenuItem: String, CaseIterable, Identifiable {
         case .flash: return "bolt.fill"
         case .exposure: return "sun.max"
         case .settings: return "gearshape"
-        case .depth: return "f.cursive"
+        case .depth: return "camera.aperture"
         }
     }
 
     var accessibilityLabel: String {
-        self == .depth ? "Depth adjustment is unavailable in this build" : title
+        self == .depth ? "Depth aperture control" : title
     }
 }
 
@@ -663,6 +785,7 @@ private struct CameraMenuRow: View {
     let valueText: String?
     let isSelected: Bool
     let isUnavailable: Bool
+    let displayStyle: MenuDisplayStyle
 
     var body: some View {
         HStack(spacing: 11) {
@@ -671,12 +794,13 @@ private struct CameraMenuRow: View {
                 .frame(width: 30, height: 30)
                 .background(Color.primary.opacity(0.07), in: Circle())
 
-            Text(item.title)
-                .font(.system(size: 14, weight: .semibold, design: .rounded))
+            if displayStyle == .iconsAndText {
+                Text(item.title)
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                Spacer(minLength: 0)
+            }
 
-            Spacer(minLength: 0)
-
-            if let valueText {
+            if displayStyle == .iconsAndText, let valueText {
                 Text(valueText)
                     .font(.system(size: 11, weight: .bold, design: .rounded))
                     .tracking(0.45)

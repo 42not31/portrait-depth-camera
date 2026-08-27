@@ -77,20 +77,48 @@ enum PhotoAspectRatio: String, CaseIterable, Identifiable {
     }
 }
 
+enum MenuDisplayStyle: String, CaseIterable, Identifiable {
+    case iconsAndText
+    case iconsOnly
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .iconsAndText: return "Icons and labels"
+        case .iconsOnly: return "Icons only"
+        }
+    }
+}
+
 enum CamProTheme {
-    static let accent = Color.primary
-    static let accentMuted = Color.primary.opacity(0.14)
+    static let accent = Color.yellow
+    static let accentMuted = Color.yellow.opacity(0.18)
 }
 
 final class CamProSettings: ObservableObject {
     @Published var showDepthIndicator: Bool {
         didSet { defaults.set(showDepthIndicator, forKey: Keys.showDepthIndicator) }
     }
-    @Published var hapticsEnabled: Bool {
-        didSet { defaults.set(hapticsEnabled, forKey: Keys.hapticsEnabled) }
-    }
     @Published var mirrorFrontCamera: Bool {
         didSet { defaults.set(mirrorFrontCamera, forKey: Keys.mirrorFrontCamera) }
+    }
+    @Published var showGrid: Bool {
+        didSet { defaults.set(showGrid, forKey: Keys.showGrid) }
+    }
+    @Published var showFocusReticle: Bool {
+        didSet { defaults.set(showFocusReticle, forKey: Keys.showFocusReticle) }
+    }
+    @Published var keepScreenAwake: Bool {
+        didSet { defaults.set(keepScreenAwake, forKey: Keys.keepScreenAwake) }
+    }
+    @Published var frontPhotoWideByDefault: Bool {
+        didSet { defaults.set(frontPhotoWideByDefault, forKey: Keys.frontPhotoWideByDefault) }
+    }
+    @Published var menuDisplayStyle: MenuDisplayStyle {
+        didSet { defaults.set(menuDisplayStyle.rawValue, forKey: Keys.menuDisplayStyle) }
+    }
+    @Published var menuOrder: [String] {
+        didSet { defaults.set(menuOrder, forKey: Keys.menuOrder) }
     }
 
     private let defaults: UserDefaults
@@ -98,13 +126,36 @@ final class CamProSettings: ObservableObject {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         self.showDepthIndicator = defaults.object(forKey: Keys.showDepthIndicator) as? Bool ?? true
-        self.hapticsEnabled = defaults.object(forKey: Keys.hapticsEnabled) as? Bool ?? true
         self.mirrorFrontCamera = defaults.object(forKey: Keys.mirrorFrontCamera) as? Bool ?? true
+        self.showGrid = defaults.object(forKey: Keys.showGrid) as? Bool ?? false
+        self.showFocusReticle = defaults.object(forKey: Keys.showFocusReticle) as? Bool ?? true
+        self.keepScreenAwake = defaults.object(forKey: Keys.keepScreenAwake) as? Bool ?? true
+        self.frontPhotoWideByDefault = defaults.object(forKey: Keys.frontPhotoWideByDefault) as? Bool ?? true
+        self.menuDisplayStyle = MenuDisplayStyle(
+            rawValue: defaults.string(forKey: Keys.menuDisplayStyle) ?? MenuDisplayStyle.iconsAndText.rawValue
+        ) ?? .iconsAndText
+        self.menuOrder = defaults.array(forKey: Keys.menuOrder) as? [String] ?? [
+            "focus", "lens", "aspectRatio", "flash", "exposure", "depth", "settings"
+        ]
+    }
+
+    func moveMenuItem(_ item: String, by offset: Int) {
+        guard let index = menuOrder.firstIndex(of: item) else { return }
+        let destination = min(max(index + offset, 0), menuOrder.count - 1)
+        guard destination != index else { return }
+        var updated = menuOrder
+        updated.swapAt(index, destination)
+        menuOrder = updated
     }
 
     private enum Keys {
         static let showDepthIndicator = "campro.showDepthIndicator"
-        static let hapticsEnabled = "campro.hapticsEnabled"
         static let mirrorFrontCamera = "campro.mirrorFrontCamera"
+        static let showGrid = "campro.showGrid"
+        static let showFocusReticle = "campro.showFocusReticle"
+        static let keepScreenAwake = "campro.keepScreenAwake"
+        static let frontPhotoWideByDefault = "campro.frontPhotoWideByDefault"
+        static let menuDisplayStyle = "campro.menuDisplayStyle"
+        static let menuOrder = "campro.menuOrder"
     }
 }
