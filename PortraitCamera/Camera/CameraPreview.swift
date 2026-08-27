@@ -7,6 +7,7 @@ struct CameraPreview: UIViewRepresentable {
     let zoomFactor: CGFloat
     let deviceZoomFactor: CGFloat
     let videoOrientation: AVCaptureVideoOrientation
+    let isMirrored: Bool
     let onTap: (CGPoint, CGPoint) -> Void
 
     func makeUIView(context: Context) -> PreviewView {
@@ -15,6 +16,7 @@ struct CameraPreview: UIViewRepresentable {
             session: session,
             onTap: onTap,
             orientation: videoOrientation,
+            isMirrored: isMirrored,
             digitalZoom: max(1.0, zoomFactor / max(deviceZoomFactor, 1.0))
         )
         return view
@@ -28,6 +30,7 @@ struct CameraPreview: UIViewRepresentable {
             session: session,
             onTap: onTap,
             orientation: videoOrientation,
+            isMirrored: isMirrored,
             digitalZoom: max(1.0, zoomFactor / max(deviceZoomFactor, 1.0))
         )
     }
@@ -37,6 +40,7 @@ final class PreviewView: UIView {
     private let previewLayer = AVCaptureVideoPreviewLayer()
     private var lastDigitalZoom: CGFloat = 1.0
     private var lastOrientation: AVCaptureVideoOrientation?
+    private var lastMirroring: Bool?
 
     var onTap: ((CGPoint, CGPoint) -> Void)?
 
@@ -68,6 +72,7 @@ final class PreviewView: UIView {
         session: AVCaptureSession,
         onTap: @escaping (CGPoint, CGPoint) -> Void,
         orientation: AVCaptureVideoOrientation,
+        isMirrored: Bool,
         digitalZoom: CGFloat
     ) {
         if previewLayer.session !== session {
@@ -75,6 +80,7 @@ final class PreviewView: UIView {
         }
         self.onTap = onTap
         setVideoOrientation(orientation)
+        setVideoMirroring(isMirrored)
         setDigitalZoom(digitalZoom)
     }
 
@@ -96,6 +102,18 @@ final class PreviewView: UIView {
         connection.videoOrientation = orientation
         CATransaction.commit()
         lastOrientation = orientation
+    }
+
+    func setVideoMirroring(_ isMirrored: Bool) {
+        guard lastMirroring != isMirrored,
+              let connection = previewLayer.connection,
+              connection.isVideoMirroringSupported else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        connection.automaticallyAdjustsVideoMirroring = false
+        connection.isVideoMirrored = isMirrored
+        CATransaction.commit()
+        lastMirroring = isMirrored
     }
 
     func setDigitalZoom(_ factor: CGFloat) {

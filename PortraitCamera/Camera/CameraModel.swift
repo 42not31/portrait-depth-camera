@@ -26,6 +26,7 @@ final class CameraModel: NSObject, ObservableObject {
     @Published private(set) var latestPhotoAssetIdentifier: String?
     @Published private(set) var depthCaptureAvailable = false
     @Published private(set) var portraitMatteAvailable = false
+    @Published private(set) var isUsingFrontCamera = false
     @Published var permissionDenied = false
     @Published var statusMessage: String?
 
@@ -42,6 +43,8 @@ final class CameraModel: NSObject, ObservableObject {
     private var activeCaptureAspectRatio: PhotoAspectRatio = .fourThree
     private var activeCaptureFlashMode: PhotoFlashMode = .off
     private var activeVideoOrientation: AVCaptureVideoOrientation = .portrait
+    private var activeCameraPosition: AVCaptureDevice.Position = .back
+    private var mirrorFrontCamera = true
     private var orientationObserver: NSObjectProtocol?
 
     override init() {
@@ -176,23 +179,13 @@ final class CameraModel: NSObject, ObservableObject {
             guard let self, self.isSessionConfigured, self.captureMode != mode else { return }
             do {
                 try self.replaceCameraInput(for: mode)
-                let portraitEnabled = mode == .portrait
-
-                self.session.beginConfiguration()
-                if self.photoOutput.isDepthDataDeliverySupported {
-                    self.photoOutput.isDepthDataDeliveryEnabled = portraitEnabled
-                }
-                if portraitEnabled,
-                   self.photoOutput.isDepthDataDeliveryEnabled,
-                   self.photoOutput.isPortraitEffectsMatteDeliverySupported {
-                    self.photoOutput.isPortraitEffectsMatteDeliveryEnabled = true
-                } else {
-                    self.photoOutput.isPortraitEffectsMatteDeliveryEnabled = false
-                }
-                self.session.commitConfiguration()
+                self.configurePhotoOutput(for: mode)
 
                 if mode == .portrait {
-                    self.softwareZoomFactor = min(self.softwareZoomFactor, 2.0)
+                    self.softwareZoomFactor = min(
+                        self.softwareZoomFactor,
+                        self.maximumSoftwareZoomFactor(for: mode)
+                    )
                 }
 
                 DispatchQueue.main.async {
@@ -212,7 +205,7 @@ final class CameraModel: NSObject, ObservableObject {
     }
 
     func setPhotoLens(_ lens: PhotoLens) {
-        guard captureMode == .photo else { return }
+        guard captureMode == .photo, !isUsingFrontCamera else { return }
         sessionQueue.async { [weak self] in
             guard let self, self.isSessionConfigured, self.photoLens != lens else { return }
             do {
@@ -231,6 +224,44 @@ final class CameraModel: NSObject, ObservableObject {
     func setPhotoAspectRatio(_ ratio: PhotoAspectRatio) {
         guard captureMode == .photo else { return }
         DispatchQueue.main.async { [weak self] in self?.photoAspectRatio = ratio }
+    }
+
+    func toggleCamera() {
+        sessionQueue.async { [weak self] in
+            guard let self, self.isSessionConfigured, !self.captureInFlight else { return }
+            let previousPosition = self.activeCameraPosition
+            self.activeCameraPosition = previousPosition == .back ? .front : .back
+
+            do {
+                try self.replaceCameraInput(for: self.captureMode)
+                self.configurePhotoOutput(for: self.captureMode)
+                self.softwareZoomFactor = 1.0
+
+                DispatchQueue.main.async {
+                    self.isUsingFrontCamera = self.activeCameraPosition == .front
+                    self.zoomFactor = self.softwareZoomFactor
+                    self.deviceZoomFactor = 1.0
+                    self.depthCaptureAvailable = self.photoOutput.isDepthDataDeliveryEnabled
+                    self.portraitMatteAvailable = self.photoOutput.isPortraitEffectsMatteDeliveryEnabled
+                    self.statusMessage = nil
+                }
+            } catch {
+                self.activeCameraPosition = previousPosition
+                DispatchQueue.main.async {
+                    self.statusMessage = self.captureMode == .portrait
+                        ? "Front Portrait camera is unavailable"
+                        : "Front camera is unavailable"
+                }
+            }
+        }
+    }
+
+    func setFrontCameraMirroring(_ enabled: Bool) {
+        sessionQueue.async { [weak self] in
+            guard let self else { return }
+            self.mirrorFrontCamera = enabled
+            self.applyPhotoOutputMirroring()
+        }
     }
 
     func setManualControlsEnabled(_ enabled: Bool) {
@@ -299,7 +330,7 @@ final class CameraModel: NSObject, ObservableObject {
     }
 
     func setZoomFactor(_ requestedFactor: CGFloat) {
-        let maximum = captureMode == .photo ? maxPhotoSoftwareZoomFactor : 2.0
+        let maximum = maximumSoftwareZoomFactor(for: captureMode)
         let desired = min(max(requestedFactor, 1.0), maximum)
 
         // This is intentionally software-only. Do not set
@@ -376,6 +407,48 @@ final class CameraModel: NSObject, ObservableObject {
         connection.videoOrientation = activeVideoOrientation
     }
 
+    private func applyPhotoOutputMirroring() {
+        guard let connection = photoOutput.connection(with: .video),
+              connection.isVideoMirroringSupported else { return }
+        connection.automaticallyAdjustsVideoMirroring = false
+        connection.isVideoMirrored = activeCameraPosition == .front && mirrorFrontCamera
+    }
+
+    private func configurePhotoOutput(
+        for mode: CaptureMode,
+        withinExistingSessionConfiguration: Bool = false
+    ) {
+        if !withinExistingSessionConfiguration {
+            session.beginConfiguration()
+        }
+        configureDepthDelivery(for: mode)
+        applyVideoOrientation()
+        applyPhotoOutputMirroring()
+        if !withinExistingSessionConfiguration {
+            session.commitConfiguration()
+        }
+    }
+
+    private func configureDepthDelivery(for mode: CaptureMode) {
+        let shouldEnableDepth = mode == .portrait && photoOutput.isDepthDataDeliverySupported
+        if photoOutput.isDepthDataDeliverySupported {
+            photoOutput.isDepthDataDeliveryEnabled = shouldEnableDepth
+        }
+        if shouldEnableDepth,
+           photoOutput.isPortraitEffectsMatteDeliverySupported {
+            photoOutput.isPortraitEffectsMatteDeliveryEnabled = true
+        } else {
+            photoOutput.isPortraitEffectsMatteDeliveryEnabled = false
+        }
+    }
+
+    private func maximumSoftwareZoomFactor(for mode: CaptureMode) -> CGFloat {
+        if activeCameraPosition == .front {
+            return mode == .portrait ? 1.5 : 2.0
+        }
+        return mode == .photo ? maxPhotoSoftwareZoomFactor : 2.0
+    }
+
     private func configureIfNeeded() {
         sessionQueue.async { [weak self] in
             guard let self else { return }
@@ -411,15 +484,13 @@ final class CameraModel: NSObject, ObservableObject {
                 guard self.session.canAddOutput(self.photoOutput) else { throw CameraError.unavailable }
                 self.session.addOutput(self.photoOutput)
                 self.applyVideoOrientation()
+                self.applyPhotoOutputMirroring()
                 self.photoOutput.maxPhotoQualityPrioritization = .quality
 
-                if self.photoOutput.isDepthDataDeliverySupported {
-                    self.photoOutput.isDepthDataDeliveryEnabled = true
-                }
-                if self.photoOutput.isDepthDataDeliveryEnabled,
-                   self.photoOutput.isPortraitEffectsMatteDeliverySupported {
-                    self.photoOutput.isPortraitEffectsMatteDeliveryEnabled = true
-                }
+                self.configurePhotoOutput(
+                    for: .portrait,
+                    withinExistingSessionConfiguration: true
+                )
 
                 depthAvailable = self.photoOutput.isDepthDataDeliveryEnabled
                 matteAvailable = self.photoOutput.isPortraitEffectsMatteDeliveryEnabled
@@ -443,11 +514,17 @@ final class CameraModel: NSObject, ObservableObject {
                 self.isRunning = true
                 self.deviceZoomFactor = 1.0
                 self.zoomFactor = 1.0
+                self.isUsingFrontCamera = false
             }
         }
     }
 
     private func makeCamera(for mode: CaptureMode, lens: PhotoLens? = nil) throws -> AVCaptureDevice {
+        if activeCameraPosition == .front,
+           let trueDepth = AVCaptureDevice.default(.builtInTrueDepthCamera, for: .video, position: .front) {
+            return trueDepth
+        }
+
         if mode == .portrait,
            let dualWide = AVCaptureDevice.default(.builtInDualWideCamera, for: .video, position: .back) {
             return dualWide
@@ -582,9 +659,13 @@ final class CameraModel: NSObject, ObservableObject {
         }
 
         let sourceAspectRatio = CGFloat(primaryImage.width) / CGFloat(primaryImage.height)
-        // Portrait keeps its proven central square crop. Photo mode alone
-        // applies the user-selected aspect ratio.
-        let targetAspectRatio = includePortraitData ? 1.0 : aspectRatio.value
+        // The primary image is landscape before its EXIF orientation is applied.
+        // Crop Portrait to the established 4:3 sensor frame and Photo to the
+        // selected sensor ratio, so an upright 9:16 Photo remains upright once
+        // Photos applies the capture orientation metadata.
+        let targetAspectRatio = includePortraitData
+            ? PhotoAspectRatio.fourThree.value
+            : aspectRatio.value
         var cropWidth = 1.0
         var cropHeight = 1.0
         if sourceAspectRatio > targetAspectRatio {
