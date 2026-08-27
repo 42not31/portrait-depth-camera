@@ -111,8 +111,14 @@ struct ContentView: View {
                 camera.setZoomFactor(frontWideMode ? 1.0 : 1.8)
             }
         }
-        .idleTimerDisabled(settings.keepScreenAwake)
-        .onDisappear { camera.stop() }
+        .onAppear { UIApplication.shared.isIdleTimerDisabled = settings.keepScreenAwake }
+        .onChange(of: settings.keepScreenAwake) { enabled in
+            UIApplication.shared.isIdleTimerDisabled = enabled
+        }
+        .onDisappear {
+            UIApplication.shared.isIdleTimerDisabled = false
+            camera.stop()
+        }
         .sheet(isPresented: $showSettings) {
             SettingsView(settings: settings)
         }
