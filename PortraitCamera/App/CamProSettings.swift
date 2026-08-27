@@ -1,6 +1,4 @@
 import AVFoundation
-// Build 47 camera settings: Photo aspect choices are intentionally limited to
-// the user-approved 4:3 and portrait-labelled 9:16 capture presentations.
 import SwiftUI
 
 enum CaptureMode: String, CaseIterable, Identifiable {
@@ -72,7 +70,9 @@ enum PhotoAspectRatio: String, CaseIterable, Identifiable {
     var value: CGFloat {
         switch self {
         case .fourThree: return 4.0 / 3.0
-        case .sixteenNine: return 9.0 / 16.0
+        // The sensor image is landscape before its EXIF orientation is applied.
+        // A 16:9 raw crop displays upright as 9:16 for portrait-oriented captures.
+        case .sixteenNine: return 16.0 / 9.0
         }
     }
 }
