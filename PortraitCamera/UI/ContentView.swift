@@ -2,8 +2,9 @@ import AVFoundation
 import SwiftUI
 import UIKit
 
-// Build 45 camera surface: MYVISION's fixed lower scaffold with the user's approved
-// raised non-overlapping geometry. Native Camera informs spacing and transitions only.
+// Build 47 camera surface: MYVISION's fixed lower scaffold remains authoritative.
+// Supplied Apple Camera comparisons define two preview contexts: lower-positioned 4:3
+// and tall 9:16 through the immediate capture row, never the final navigation row.
 // Clear preview; Liquid Glass on controls and contextual panels; yellow selected mode.
 
 struct ContentView: View {
@@ -28,8 +29,11 @@ struct ContentView: View {
         switch camera.photoAspectRatio {
         case .fourThree: return 3.0 / 4.0
         case .sixteenNine: return 9.0 / 16.0
-        case .square: return 1.0
         }
+    }
+
+    private var usesTallPhotoPreview: Bool {
+        camera.captureMode == .photo && camera.photoAspectRatio == .sixteenNine
     }
 
     private var previewLayoutKey: String {
@@ -79,9 +83,18 @@ struct ContentView: View {
 
     private var previewSurface: some View {
         GeometryReader { proxy in
-            // 112pt raised capture row + 58pt navigation + device safe-area clearance.
-            let lowerChromeHeight = 170 + max(proxy.safeAreaInsets.bottom, 20)
-            let availableHeight = max(proxy.size.height - lowerChromeHeight, 1)
+            // The fixed 112pt capture row and 58pt final navigation row remain in the
+            // MYVISION scaffold. Four-three ends above the capture row; tall Photo
+            // extends through that row but retains a black final navigation/home zone.
+            let bottomSafeArea = max(proxy.safeAreaInsets.bottom, 20)
+            let immediateCaptureRowHeight: CGFloat = 112
+            let finalNavigationHeight: CGFloat = 58 + bottomSafeArea
+            let fourThreeCanvasHeight = max(
+                proxy.size.height - immediateCaptureRowHeight - finalNavigationHeight,
+                1
+            )
+            let tallCanvasHeight = max(proxy.size.height - finalNavigationHeight, 1)
+            let availableHeight = usesTallPhotoPreview ? tallCanvasHeight : fourThreeCanvasHeight
             let previewHeight = min(availableHeight, proxy.size.width / previewAspectRatio)
 
             ZStack(alignment: .top) {
@@ -101,19 +114,19 @@ struct ContentView: View {
                 )
                 .frame(width: proxy.size.width, height: previewHeight)
                 .clipShape(Rectangle())
-                .overlay(alignment: .bottom) {
-                    Rectangle()
-                        .fill(Color.white.opacity(0.14))
-                        .frame(height: 0.8)
-                }
                 .overlay {
                     if let focusPoint, !camera.manualControlsEnabled {
                         FocusReticle()
                             .id(focusAnimationID)
-                            .position(focusPoint)
+                        .position(focusPoint)
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .top)
+                .frame(
+                    width: proxy.size.width,
+                    height: availableHeight,
+                    alignment: .bottom
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .animation(.easeInOut(duration: 0.25), value: previewLayoutKey)
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
