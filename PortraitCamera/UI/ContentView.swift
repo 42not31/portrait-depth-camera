@@ -27,7 +27,7 @@ struct ContentView: View {
         if camera.isUsingFrontCamera {
             return camera.captureMode == .photo ? [1.0, 2.0] : [1.0, 1.5]
         }
-        camera.captureMode == .photo ? [1.0, 2.0, 3.0, 4.0, 5.0] : [1.0, 2.0]
+        return camera.captureMode == .photo ? [1.0, 2.0, 3.0, 4.0, 5.0] : [1.0, 2.0]
     }
 
     private var zoomTitle: String {
