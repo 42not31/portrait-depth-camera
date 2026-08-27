@@ -445,6 +445,20 @@ struct ContentView: View {
             showSettings = true
         case .depth:
             return
+        case .focus:
+            if isFocusSupported && !camera.manualControlsEnabled {
+                camera.setManualControlsEnabled(true)
+            }
+            withAnimation(.easeOut(duration: 0.16)) {
+                activeMenuItem = activeMenuItem == item ? nil : item
+            }
+        case .exposure:
+            if !camera.manualControlsEnabled {
+                camera.setManualControlsEnabled(true)
+            }
+            withAnimation(.easeOut(duration: 0.16)) {
+                activeMenuItem = activeMenuItem == item ? nil : item
+            }
         default:
             withAnimation(.easeOut(duration: 0.16)) {
                 activeMenuItem = activeMenuItem == item ? nil : item
