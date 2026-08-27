@@ -108,9 +108,6 @@ final class CamProSettings: ObservableObject {
     @Published var keepScreenAwake: Bool {
         didSet { defaults.set(keepScreenAwake, forKey: Keys.keepScreenAwake) }
     }
-    @Published var frontPhotoWideByDefault: Bool {
-        didSet { defaults.set(frontPhotoWideByDefault, forKey: Keys.frontPhotoWideByDefault) }
-    }
     @Published var menuDisplayStyle: MenuDisplayStyle {
         didSet { defaults.set(menuDisplayStyle.rawValue, forKey: Keys.menuDisplayStyle) }
     }
@@ -123,7 +120,6 @@ final class CamProSettings: ObservableObject {
         self.showGrid = defaults.object(forKey: Keys.showGrid) as? Bool ?? false
         self.showFocusReticle = defaults.object(forKey: Keys.showFocusReticle) as? Bool ?? true
         self.keepScreenAwake = defaults.object(forKey: Keys.keepScreenAwake) as? Bool ?? true
-        self.frontPhotoWideByDefault = defaults.object(forKey: Keys.frontPhotoWideByDefault) as? Bool ?? true
         self.menuDisplayStyle = MenuDisplayStyle(
             rawValue: defaults.string(forKey: Keys.menuDisplayStyle) ?? MenuDisplayStyle.iconsAndText.rawValue
         ) ?? .iconsAndText
@@ -134,7 +130,6 @@ final class CamProSettings: ObservableObject {
         static let showGrid = "campro.showGrid"
         static let showFocusReticle = "campro.showFocusReticle"
         static let keepScreenAwake = "campro.keepScreenAwake"
-        static let frontPhotoWideByDefault = "campro.frontPhotoWideByDefault"
         static let menuDisplayStyle = "campro.menuDisplayStyle"
     }
 }

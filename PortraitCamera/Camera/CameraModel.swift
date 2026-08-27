@@ -31,9 +31,6 @@ final class CameraModel: NSObject, ObservableObject {
     private let photoOutput = AVCapturePhotoOutput()
     private var videoInput: AVCaptureDeviceInput?
     private let maxPhotoSoftwareZoomFactor: CGFloat = 5.0
-    // The front camera's full sensor view is presented as the logical 0.5× state.
-    // A mathematically exact 1× state is therefore a 2× crop, not an approximation.
-    private let frontPhotoNormalCropFactor: CGFloat = 2.0
     private var isSessionConfigured = false
     private var captureInFlight = false
     private var softwareZoomFactor: CGFloat = 1.0
@@ -192,7 +189,11 @@ final class CameraModel: NSObject, ObservableObject {
             guard let self, self.isSessionConfigured, self.photoLens != lens else { return }
             do {
                 try self.replaceCameraInput(for: .photo, lens: lens)
-                DispatchQueue.main.async { self.photoLens = lens }
+                self.softwareZoomFactor = 1.0
+                DispatchQueue.main.async {
+                    self.photoLens = lens
+                    self.zoomFactor = self.softwareZoomFactor
+                }
             } catch {
                 DispatchQueue.main.async { self.statusMessage = "This lens is unavailable" }
             }
@@ -307,11 +308,6 @@ final class CameraModel: NSObject, ObservableObject {
                 DispatchQueue.main.async { self.statusMessage = "Manual exposure is unavailable" }
             }
         }
-    }
-
-    func setFrontPhotoZoomMode(isWide: Bool) {
-        guard isUsingFrontCamera, captureMode == .photo else { return }
-        setZoomFactor(isWide ? 1.0 : frontPhotoNormalCropFactor)
     }
 
     func setZoomFactor(_ requestedFactor: CGFloat) {

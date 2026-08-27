@@ -9,7 +9,6 @@ struct SettingsView: View {
             List {
                 Section {
                     Toggle("Mirror front camera", isOn: $settings.mirrorFrontCamera)
-                    Toggle("Front Photo starts wide", isOn: $settings.frontPhotoWideByDefault)
                     Toggle("Show focus reticle", isOn: $settings.showFocusReticle)
                     Toggle("Show framing grid", isOn: $settings.showGrid)
                     Toggle("Keep screen awake while open", isOn: $settings.keepScreenAwake)
