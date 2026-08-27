@@ -21,6 +21,8 @@ struct ContentView: View {
     private let navigationRowOffset: CGFloat = 8
     private let previewLowerBoundaryOffset: CGFloat = 16
     @State private var frontWideMode = true
+    @State private var displayedCaptureMode: CaptureMode = .portrait
+    @Namespace private var modeSelectionNamespace
 
     private var zoomPresets: [CGFloat] {
         if camera.isUsingFrontCamera {
@@ -102,12 +104,27 @@ struct ContentView: View {
             camera.setFrontCameraMirroring(enabled)
         }
         .onChange(of: camera.isUsingFrontCamera) { isFront in
-            if isFront && camera.captureMode == .photo {
-                frontWideMode = settings.frontPhotoWideByDefault
-                camera.setZoomFactor(frontWideMode ? 1.0 : 1.8)
+            guard isFront, camera.captureMode == .photo else { return }
+            frontWideMode = settings.frontPhotoWideByDefault
+            camera.setFrontPhotoZoomMode(isWide: frontWideMode)
+        }
+        .onChange(of: camera.captureMode) { mode in
+            withAnimation(.snappy(duration: 0.28, extraBounce: 0)) {
+                displayedCaptureMode = mode
+            }
+            if camera.isUsingFrontCamera {
+                if mode == .photo {
+                    frontWideMode = settings.frontPhotoWideByDefault
+                    camera.setFrontPhotoZoomMode(isWide: frontWideMode)
+                } else {
+                    camera.setZoomFactor(1.0)
+                }
             }
         }
-        .onAppear { UIApplication.shared.isIdleTimerDisabled = settings.keepScreenAwake }
+        .onAppear {
+            displayedCaptureMode = camera.captureMode
+            UIApplication.shared.isIdleTimerDisabled = settings.keepScreenAwake
+        }
         .onChange(of: settings.keepScreenAwake) { enabled in
             UIApplication.shared.isIdleTimerDisabled = enabled
         }
@@ -208,18 +225,6 @@ struct ContentView: View {
             .padding(.horizontal, 20)
             .frame(height: 112)
 
-            if isMenuOpen {
-                controlMenu
-                    .padding(.trailing, 16)
-                    .padding(.bottom, 8)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-            if activeMenuItem != nil && !isMenuOpen {
-                activeControlDetail
-                    .padding(.trailing, 16)
-                    .padding(.bottom, 8)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
         }
         .frame(maxWidth: .infinity, minHeight: 112)
         .animation(.easeOut(duration: 0.2), value: isMenuOpen)
@@ -280,21 +285,35 @@ struct ContentView: View {
 
     private var menuButton: some View {
         Button {
-            withAnimation(.easeOut(duration: 0.2)) {
+            withAnimation(.snappy(duration: 0.24, extraBounce: 0)) {
                 if isMenuOpen {
-                    dismissMenu()
+                    activeMenuItem = nil
+                    isMenuOpen = false
                 } else {
                     isMenuOpen = true
                 }
             }
         } label: {
-            Image(systemName: "line.3.horizontal")
-                .font(.system(size: 21, weight: .medium))
+            Image(systemName: isMenuOpen ? "xmark" : "line.3.horizontal")
+                .font(.system(size: 20, weight: .semibold))
                 .foregroundStyle(Color.white)
                 .frame(width: 50, height: 50)
+                .contentShape(Circle())
                 .camProGlass(Circle())
         }
         .buttonStyle(CameraPressStyle())
+        .zIndex(5)
+        .overlay(alignment: .bottomTrailing) {
+            if isMenuOpen {
+                controlMenu
+                    .offset(y: -58)
+                    .transition(.scale(scale: 0.92, anchor: .bottomTrailing).combined(with: .opacity))
+            } else if activeMenuItem != nil {
+                activeControlDetail
+                    .offset(y: -58)
+                    .transition(.scale(scale: 0.94, anchor: .bottomTrailing).combined(with: .opacity))
+            }
+        }
         .accessibilityLabel(isMenuOpen ? "Close camera menu" : "Open camera menu")
     }
 
@@ -320,12 +339,16 @@ struct ContentView: View {
                     )
                 }
                 .buttonStyle(CameraPressStyle())
+                .frame(maxWidth: .infinity)
+                .contentShape(Rectangle())
                 .accessibilityLabel(item.accessibilityLabel)
             }
         }
         .padding(settings.menuDisplayStyle == .iconsOnly ? 10 : 12)
         .frame(width: settings.menuDisplayStyle == .iconsOnly ? 76 : 286)
-        .camProGlass(RoundedRectangle(cornerRadius: 30, style: .continuous))
+        .camProGlass(RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
         .shadow(color: .black.opacity(0.28), radius: 22, y: 10)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Camera menu")
@@ -400,9 +423,8 @@ struct ContentView: View {
             HStack(spacing: 7) {
                 ForEach(PhotoAspectRatio.allCases) { ratio in
                     choiceButton(ratio.title, isSelected: camera.photoAspectRatio == ratio) {
-                        withAnimation(.easeInOut(duration: 0.25)) {
+                        withAnimation(.snappy(duration: 0.24, extraBounce: 0)) {
                             camera.setPhotoAspectRatio(ratio)
-                            activeMenuItem = nil
                         }
                     }
                 }
@@ -525,9 +547,10 @@ struct ContentView: View {
         case .aspectRatio:
             let ratios = PhotoAspectRatio.allCases
             if let index = ratios.firstIndex(of: camera.photoAspectRatio) {
-                camera.setPhotoAspectRatio(ratios[(index + 1) % ratios.count])
+                withAnimation(.snappy(duration: 0.24, extraBounce: 0)) {
+                    camera.setPhotoAspectRatio(ratios[(index + 1) % ratios.count])
+                }
             }
-            dismissMenu()
         case .lens:
             let lenses = PhotoLens.allCases
             if let index = lenses.firstIndex(of: camera.photoLens) {
@@ -545,6 +568,13 @@ struct ContentView: View {
     }
 
     private func advanceZoom() {
+        if camera.isUsingFrontCamera && camera.captureMode == .photo {
+            withAnimation(.snappy(duration: 0.24, extraBounce: 0)) {
+                frontWideMode.toggle()
+            }
+            camera.setFrontPhotoZoomMode(isWide: frontWideMode)
+            return
+        }
         let currentIndex = zoomPresets.firstIndex { abs($0 - camera.zoomFactor) < 0.08 } ?? 0
         let nextIndex = (currentIndex + 1) % zoomPresets.count
         camera.setZoomFactor(zoomPresets[nextIndex])
@@ -584,32 +614,39 @@ struct ContentView: View {
     }
 
     private func modeButton(_ mode: CaptureMode) -> some View {
-        Button {
+        let isSelected = displayedCaptureMode == mode
+        return Button {
+            withAnimation(.snappy(duration: 0.28, extraBounce: 0)) {
+                displayedCaptureMode = mode
+            }
             camera.setCaptureMode(mode)
             focusPoint = nil
             dismissMenu()
         } label: {
-            Text(mode.title)
-                .font(.system(size: 11, weight: .bold, design: .rounded))
-                .tracking(0.75)
-                .foregroundStyle(camera.captureMode == mode ? Color.black : Color.white.opacity(0.72))
-                .frame(maxWidth: .infinity, minHeight: 34)
-                .background {
-                    if camera.captureMode == mode {
-                        Capsule().fill(CamProTheme.accent.opacity(0.86))
-                            .camProGlass(Capsule())
-                    }
+            ZStack {
+                if isSelected {
+                    Capsule()
+                        .fill(CamProTheme.accent.opacity(0.86))
+                        .camProGlass(Capsule())
+                        .matchedGeometryEffect(id: "selectedCaptureMode", in: modeSelectionNamespace)
                 }
+                Text(mode.title)
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .tracking(0.75)
+                    .foregroundStyle(isSelected ? Color.black : Color.white.opacity(0.72))
+            }
+            .frame(maxWidth: .infinity, minHeight: 34)
+            .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(camera.captureMode == mode ? .isSelected : [])
+        .buttonStyle(CameraPressStyle())
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private var frontWideToggle: some View {
         Button {
-            withAnimation(.easeInOut(duration: 0.2)) {
+            withAnimation(.snappy(duration: 0.24, extraBounce: 0)) {
                 frontWideMode.toggle()
-                camera.setZoomFactor(frontWideMode ? 1.0 : 1.8)
+                camera.setFrontPhotoZoomMode(isWide: frontWideMode)
             }
         } label: {
             HStack(spacing: 4) {
