@@ -2,10 +2,10 @@ import AVFoundation
 import SwiftUI
 import UIKit
 
-// Build 49 camera surface: the complete Build 47 MYVISION screen is authoritative.
-// Apple Camera comparisons define two preview contexts: lower-positioned 4:3 and tall
-// 9:16 through the immediate capture row. The shared lower-control family moves down
-// eight points; no Build 48 visual rules or capture-pipeline behavior are retained.
+// Build 50 camera surface: the complete Build 47 MYVISION screen remains authoritative.
+// User-marked Apple comparisons lower each ratio-specific preview frame slightly, while
+// the fixed zoom / shutter / Menu row moves up and the shutter becomes more compact.
+// No Build 48 visual rules or capture-pipeline behavior are retained.
 
 struct ContentView: View {
     @ObservedObject var camera: CameraModel
@@ -19,7 +19,8 @@ struct ContentView: View {
 
     private let glassBorder = Color.white.opacity(0.28)
     private let activeYellow = Color.yellow
-    private let lowerControlFamilyOffset: CGFloat = 8
+    private let lowerControlFamilyOffset: CGFloat = 0
+    private let previewLowerBoundaryOffset: CGFloat = 16
 
     private var zoomPresets: [CGFloat] {
         camera.captureMode == .photo ? [1.0, 2.0, 3.0, 4.0, 5.0] : [1.0, 2.0]
@@ -85,19 +86,19 @@ struct ContentView: View {
 
     private var previewSurface: some View {
         GeometryReader { proxy in
-            // The Build 47 row sizes remain fixed. Expanding each canvas by the shared
-            // eight-point control-family offset keeps its live-preview boundary aligned
-            // with the lowered controls in both displayed Photo ratios.
+            // The marked Apple comparison lowers both ratio-specific frames through the
+            // canvas lower boundary. Capture controls use their own raised offset so the
+            // two visual corrections remain independent and smoothly animated.
             let bottomSafeArea = max(proxy.safeAreaInsets.bottom, 20)
             let immediateCaptureRowHeight: CGFloat = 112
             let finalNavigationHeight: CGFloat = 58 + bottomSafeArea
             let fourThreeCanvasHeight = max(
                 proxy.size.height - immediateCaptureRowHeight - finalNavigationHeight
-                    + lowerControlFamilyOffset,
+                    + previewLowerBoundaryOffset,
                 1
             )
             let tallCanvasHeight = max(
-                proxy.size.height - finalNavigationHeight + lowerControlFamilyOffset,
+                proxy.size.height - finalNavigationHeight + previewLowerBoundaryOffset,
                 1
             )
             let availableHeight = usesTallPhotoPreview ? tallCanvasHeight : fourThreeCanvasHeight
@@ -211,11 +212,11 @@ struct ContentView: View {
             ZStack {
                 Circle()
                     .fill(.ultraThinMaterial)
-                    .frame(width: 82, height: 82)
+                    .frame(width: 76, height: 76)
                     .overlay { Circle().stroke(glassBorder, lineWidth: 1) }
                 Circle()
                     .fill(camera.isCapturing ? Color.white.opacity(0.35) : .white)
-                    .frame(width: 66, height: 66)
+                    .frame(width: 60, height: 60)
                     .overlay { Circle().stroke(Color.black.opacity(0.18), lineWidth: 1) }
             }
         }
