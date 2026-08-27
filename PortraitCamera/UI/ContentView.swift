@@ -2,10 +2,10 @@ import AVFoundation
 import SwiftUI
 import UIKit
 
-// Build 50 camera surface: the complete Build 47 MYVISION screen remains authoritative.
-// User-marked Apple comparisons lower each ratio-specific preview frame slightly, while
-// the fixed zoom / shutter / Menu row moves up and the shutter becomes more compact.
-// No Build 48 visual rules or capture-pipeline behavior are retained.
+// Build 51 camera surface: the complete Build 47 MYVISION screen remains authoritative.
+// The final green-marked Apple comparisons lower both preview frames slightly, raise the
+// capture row, reduce its shutter, and lower the separate final navigation row. No camera
+// behavior or Build 48 visual rule is retained.
 
 struct ContentView: View {
     @ObservedObject var camera: CameraModel
@@ -19,7 +19,9 @@ struct ContentView: View {
 
     private let glassBorder = Color.white.opacity(0.28)
     private let activeYellow = Color.yellow
-    private let lowerControlFamilyOffset: CGFloat = 0
+    private let previewVerticalOffset: CGFloat = 8
+    private let captureControlRowOffset: CGFloat = -8
+    private let navigationRowOffset: CGFloat = 8
     private let previewLowerBoundaryOffset: CGFloat = 16
 
     private var zoomPresets: [CGFloat] {
@@ -68,7 +70,6 @@ struct ContentView: View {
         }
         .overlay(alignment: .bottom) {
             bottomControlSystem
-                .offset(y: lowerControlFamilyOffset)
                 .safeAreaPadding(.bottom, 2)
                 .zIndex(2)
         }
@@ -86,9 +87,8 @@ struct ContentView: View {
 
     private var previewSurface: some View {
         GeometryReader { proxy in
-            // The marked Apple comparison lowers both ratio-specific frames through the
-            // canvas lower boundary. Capture controls use their own raised offset so the
-            // two visual corrections remain independent and smoothly animated.
+            // The final marked Apple comparison keeps each ratio-specific canvas intact,
+            // then lowers the complete live preview slightly as one visual frame.
             let bottomSafeArea = max(proxy.safeAreaInsets.bottom, 20)
             let immediateCaptureRowHeight: CGFloat = 112
             let finalNavigationHeight: CGFloat = 58 + bottomSafeArea
@@ -133,6 +133,7 @@ struct ContentView: View {
                     height: availableHeight,
                     alignment: .bottom
                 )
+                .offset(y: previewVerticalOffset)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .animation(.easeInOut(duration: 0.25), value: previewLayoutKey)
             }
@@ -144,7 +145,11 @@ struct ContentView: View {
     private var bottomControlSystem: some View {
         VStack(spacing: 0) {
             lowerControlRow
+                .offset(y: captureControlRowOffset)
+                .zIndex(1)
             bottomNavigationRow
+                .offset(y: navigationRowOffset)
+                .zIndex(0)
         }
         .frame(maxWidth: .infinity)
     }
@@ -212,11 +217,11 @@ struct ContentView: View {
             ZStack {
                 Circle()
                     .fill(.ultraThinMaterial)
-                    .frame(width: 76, height: 76)
+                    .frame(width: 72, height: 72)
                     .overlay { Circle().stroke(glassBorder, lineWidth: 1) }
                 Circle()
                     .fill(camera.isCapturing ? Color.white.opacity(0.35) : .white)
-                    .frame(width: 60, height: 60)
+                    .frame(width: 56, height: 56)
                     .overlay { Circle().stroke(Color.black.opacity(0.18), lineWidth: 1) }
             }
         }
