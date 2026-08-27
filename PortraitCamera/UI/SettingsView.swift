@@ -8,7 +8,6 @@ struct SettingsView: View {
         NavigationStack {
             List {
                 Section {
-                    Toggle("Depth readiness indicator", isOn: $settings.showDepthIndicator)
                     Toggle("Mirror front camera", isOn: $settings.mirrorFrontCamera)
                     Toggle("Front Photo starts wide", isOn: $settings.frontPhotoWideByDefault)
                     Toggle("Show focus reticle", isOn: $settings.showFocusReticle)
@@ -26,96 +25,35 @@ struct SettingsView: View {
                             Text(style.title).tag(style)
                         }
                     }
-
-                    ForEach(settings.menuOrder, id: \.self) { item in
-                        HStack(spacing: 10) {
-                            Image(systemName: iconName(for: item))
-                                .frame(width: 22)
-                            Text(title(for: item))
-                            Spacer()
-                            Button {
-                                settings.moveMenuItem(item, by: -1)
-                            } label: {
-                                Image(systemName: "chevron.up")
-                            }
-                            .disabled(settings.menuOrder.first == item)
-                            .accessibilityLabel("Move \(title(for: item)) up")
-                            Button {
-                                settings.moveMenuItem(item, by: 1)
-                            } label: {
-                                Image(systemName: "chevron.down")
-                            }
-                            .disabled(settings.menuOrder.last == item)
-                            .accessibilityLabel("Move \(title(for: item)) down")
-                        }
-                    }
                 } header: {
-                    Text("MENU CUSTOMIZATION")
+                    Text("MENU")
                 } footer: {
-                    Text("Choose icons only or icons with labels, then use the arrows to rearrange the menu.")
+                    Text("Choose between a narrow icons-only menu or a labeled menu with current values.")
                 }
 
                 Section {
-                    HStack {
-                        Text("App")
-                        Spacer()
-                        Text("CamPro Beta")
-                            .foregroundStyle(.secondary)
-                    }
-                    HStack {
-                        Text("Developer")
-                        Spacer()
-                        Text("Abhijeet Mitra")
-                            .foregroundStyle(.secondary)
-                    }
-                    HStack {
-                        Text("Build")
-                        Spacer()
-                        Text((Bundle.main.object(forInfoDictionaryKey: "CAMPRO_BUILD_NAME") as? String) ?? "Build 54")
-                            .foregroundStyle(.secondary)
-                    }
+                    LabeledContent("App", value: "CamPro Beta")
+                    LabeledContent("Developer", value: "Abhijeet Mitra")
+                    LabeledContent(
+                        "Build",
+                        value: (Bundle.main.object(forInfoDictionaryKey: "CAMPRO_BUILD_NAME") as? String) ?? "Build 54"
+                    )
                 } header: {
                     Text("ABOUT")
                 }
             }
             .scrollContentBackground(.hidden)
-            .background(.thinMaterial)
-            .foregroundStyle(.primary)
+            .background(.regularMaterial)
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
+                        .fontWeight(.semibold)
                         .foregroundStyle(CamProTheme.accent)
                 }
             }
         }
         .tint(CamProTheme.accent)
-    }
-
-    private func title(for item: String) -> String {
-        switch item {
-        case "focus": return "Focus"
-        case "lens": return "Lens"
-        case "aspectRatio": return "Ratio"
-        case "flash": return "Flash"
-        case "exposure": return "Exposure"
-        case "depth": return "Depth"
-        case "settings": return "Settings"
-        default: return item.capitalized
-        }
-    }
-
-    private func iconName(for item: String) -> String {
-        switch item {
-        case "focus": return "scope"
-        case "lens": return "circle.circle"
-        case "aspectRatio": return "viewfinder"
-        case "flash": return "bolt.fill"
-        case "exposure": return "sun.max"
-        case "depth": return "camera.aperture"
-        case "settings": return "gearshape"
-        default: return "circle"
-        }
     }
 }

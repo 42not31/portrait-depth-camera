@@ -73,19 +73,6 @@ struct ContentView: View {
                     .font(.system(size: 15, weight: .bold, design: .rounded))
                     .tracking(2.2)
                     .foregroundStyle(.white)
-                if settings.showDepthIndicator {
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(camera.captureMode == .portrait && camera.depthCaptureAvailable ? CamProTheme.accent : .gray)
-                            .frame(width: 6, height: 6)
-                        Text(camera.captureMode == .portrait
-                             ? (camera.depthCaptureAvailable ? "DEPTH READY" : "STANDARD DEPTH")
-                             : "SINGLE FRAME PHOTO")
-                            .font(.system(size: 10, weight: .semibold, design: .rounded))
-                            .tracking(1.1)
-                            .foregroundStyle(.white.opacity(0.64))
-                    }
-                }
             }
 
             Spacer()
