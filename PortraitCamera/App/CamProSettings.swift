@@ -1,4 +1,6 @@
 import AVFoundation
+// Build 47 camera settings: Photo aspect choices are intentionally limited to
+// the user-approved 4:3 and portrait-labelled 9:16 capture presentations.
 import SwiftUI
 
 enum CaptureMode: String, CaseIterable, Identifiable {
@@ -57,7 +59,6 @@ enum PhotoFlashMode: String, CaseIterable, Identifiable {
 enum PhotoAspectRatio: String, CaseIterable, Identifiable {
     case fourThree
     case sixteenNine
-    case square
 
     var id: String { rawValue }
 
@@ -65,7 +66,6 @@ enum PhotoAspectRatio: String, CaseIterable, Identifiable {
         switch self {
         case .fourThree: return "4:3"
         case .sixteenNine: return "9:16"
-        case .square: return "1:1"
         }
     }
 
@@ -73,7 +73,6 @@ enum PhotoAspectRatio: String, CaseIterable, Identifiable {
         switch self {
         case .fourThree: return 4.0 / 3.0
         case .sixteenNine: return 9.0 / 16.0
-        case .square: return 1.0
         }
     }
 }
