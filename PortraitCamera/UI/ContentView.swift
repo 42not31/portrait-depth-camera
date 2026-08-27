@@ -59,7 +59,7 @@ struct ContentView: View {
                 ? [.aspectRatio, .exposure, .settings]
                 : [.exposure, .settings]
         }
-        camera.captureMode == .photo
+        return camera.captureMode == .photo
             ? [.focus, .lens, .aspectRatio, .flash, .exposure, .settings]
             : [.depth, .flash, .exposure, .settings]
     }
