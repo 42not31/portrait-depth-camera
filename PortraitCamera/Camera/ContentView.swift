@@ -86,7 +86,7 @@ struct ContentView: View {
                     .padding(12)
                     .background(CamProTheme.accentMuted, in: Circle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(ScaleButtonStyle())
             .accessibilityLabel("Settings")
         }
         .padding(.horizontal, 24)
@@ -154,8 +154,9 @@ struct ContentView: View {
                                 abs(camera.zoomFactor - preset) < 0.08 ? CamProTheme.accent : Color.white.opacity(0.1),
                                 in: Capsule()
                             )
+                            .animation(.easeOut(duration: 0.18), value: camera.zoomFactor)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(ScaleButtonStyle(scale: 0.9))
                 }
             }
 
@@ -182,7 +183,7 @@ struct ContentView: View {
                             .stroke(.white.opacity(0.18), lineWidth: 1)
                     }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(ScaleButtonStyle())
                 .disabled(camera.latestPhotoImage == nil)
                 .accessibilityLabel(camera.latestPhotoImage == nil ? "No photo captured yet" : "Open latest photo in Photos")
 
@@ -230,8 +231,9 @@ struct ContentView: View {
                                 camera.photoLens == lens ? CamProTheme.accent : Color.white.opacity(0.1),
                                 in: Capsule()
                             )
+                            .animation(.easeOut(duration: 0.18), value: camera.photoLens)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(ScaleButtonStyle(scale: 0.9))
                     .accessibilityLabel("Photo lens \(lens.title)")
                     .accessibilityAddTraits(camera.photoLens == lens ? .isSelected : [])
                 }
@@ -335,6 +337,17 @@ struct ContentView: View {
         .padding(28)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .padding(28)
+    }
+}
+
+private struct ScaleButtonStyle: ButtonStyle {
+    var scale: CGFloat = 0.92
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? scale : 1.0)
+            .opacity(configuration.isPressed ? 0.85 : 1.0)
+            .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
     }
 }
 
