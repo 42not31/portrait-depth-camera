@@ -6,7 +6,7 @@
       "platform" : "ios",
       "size" : "1024x1024",
       "appearances" : [
-        { "appearance" : "luminosity", "value" : "Dark" }
+        { "appearance" : "luminosity", "value" : "Light" }
       ]
     },
     {
