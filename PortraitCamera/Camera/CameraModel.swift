@@ -764,6 +764,95 @@ final class CameraModel: NSObject, ObservableObject {
         return croppedData
     }
 
+    private func croppedPortraitFileData(for photo: AVCapturePhoto, factor: CGFloat) -> Data? {
+        // At 1x there's nothing to crop — keep the native representation,
+        // which already carries Apple's own depth/matte data safely.
+        guard factor > 1.01 else { return photo.fileDataRepresentation() }
+
+        guard let primaryImage = photo.cgImageRepresentation() else {
+            return photo.fileDataRepresentation()
+        }
+
+        let sourceAspectRatio = CGFloat(primaryImage.width) / CGFloat(primaryImage.height)
+        let targetAspectRatio = PhotoAspectRatio.fourThree.value
+        var cropWidth = 1.0
+        var cropHeight = 1.0
+        if sourceAspectRatio > targetAspectRatio {
+            cropWidth = targetAspectRatio / sourceAspectRatio
+        } else if sourceAspectRatio < targetAspectRatio {
+            cropHeight = sourceAspectRatio / targetAspectRatio
+        }
+
+        let zoomScale = max(1.0 / factor, 0.05)
+        cropWidth *= zoomScale
+        cropHeight *= zoomScale
+        let normalizedCrop = CGRect(
+            x: (1.0 - cropWidth) / 2.0,
+            y: (1.0 - cropHeight) / 2.0,
+            width: cropWidth,
+            height: cropHeight
+        )
+        let cropRect = CGRect(
+            x: CGFloat(primaryImage.width) * normalizedCrop.minX,
+            y: CGFloat(primaryImage.height) * normalizedCrop.minY,
+            width: CGFloat(primaryImage.width) * normalizedCrop.width,
+            height: CGFloat(primaryImage.height) * normalizedCrop.height
+        ).integral
+
+        // Crop the color image only — do NOT run it through the
+        // CIDepthOfField filter. Baking blur in software is the crash-prone
+        // path on device; instead the depth/matte data is cropped alongside
+        // the color image so Photos renders Portrait blur natively, exactly
+        // as an uncropped 1x capture does today.
+        guard let croppedImage = primaryImage.cropping(to: cropRect) else {
+            return photo.fileDataRepresentation()
+        }
+
+        var depthAuxiliaryInfo: (CFString, CFDictionary)?
+        if let depth = photo.depthData {
+            var depthType: NSString?
+            if let originalInfo = depth.dictionaryRepresentation(forAuxiliaryDataType: &depthType),
+               let depthType {
+                depthAuxiliaryInfo = croppedAuxiliaryInfo(
+                    from: originalInfo,
+                    auxiliaryType: depthType,
+                    map: depth.depthDataMap,
+                    normalizedRect: normalizedCrop
+                )
+            }
+        }
+
+        var matteAuxiliaryInfo: (CFString, CFDictionary)?
+        if let matte = photo.portraitEffectsMatte {
+            var matteType: NSString?
+            if let originalInfo = matte.dictionaryRepresentation(forAuxiliaryDataType: &matteType),
+               let matteType {
+                matteAuxiliaryInfo = croppedAuxiliaryInfo(
+                    from: originalInfo,
+                    auxiliaryType: matteType,
+                    map: matte.mattingImage,
+                    normalizedRect: normalizedCrop
+                )
+            }
+        }
+
+        let outputMetadata = portraitEnabledMetadata(
+            from: croppedMetadata(from: photo.metadata, width: croppedImage.width, height: croppedImage.height)
+        )
+
+        guard let croppedData = packageImage(
+            croppedImage,
+            metadata: outputMetadata,
+            depthAuxiliaryInfo: depthAuxiliaryInfo,
+            matteAuxiliaryInfo: matteAuxiliaryInfo
+        ) else {
+            // Never lose a genuine Portrait capture over a packaging
+            // failure — fall back to the native, uncropped file.
+            return photo.fileDataRepresentation()
+        }
+        return croppedData
+    }
+
     private func depthEffectImage(from image: CGImage, photo: AVCapturePhoto, aperture: CGFloat) -> CGImage? {
         guard aperture < 15.95, let depth = photo.depthData else { return nil }
         guard let filter = CIFilter(name: "CIDepthOfField") else { return nil }
@@ -1009,10 +1098,10 @@ extension CameraModel: AVCapturePhotoCaptureDelegate {
         let includePortraitData = activeCaptureMode == .portrait
 
         if includePortraitData {
-            // Keep Portrait captures in the native AVFoundation representation.
-            // This preserves embedded depth/matte data for Photos and avoids the
-            // crash-prone custom Core Image depth rewrite on physical devices.
-            guard let data = photo.fileDataRepresentation() else {
+            // Crop to the selected zoom factor while preserving embedded
+            // depth/matte data for Photos. At 1x this returns the native
+            // AVFoundation representation unchanged (no crop needed).
+            guard let data = croppedPortraitFileData(for: photo, factor: zoom) else {
                 finishCapture(with: "Could not create the Portrait photo file")
                 return
             }
