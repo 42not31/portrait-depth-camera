@@ -442,15 +442,17 @@ final class CameraModel: NSObject, ObservableObject {
     }
 
     private func configureDepthDelivery(for mode: CaptureMode) {
-        let shouldEnableDepth = mode == .portrait && photoOutput.isDepthDataDeliverySupported
+        // Configure depth once for the session and keep it enabled while the
+        // input changes between Photo and Portrait. Toggling delivery after a
+        // running session has changed inputs can make AVCapturePhotoSettings
+        // invalid and crash at capture time on physical devices.
+        guard mode == .portrait else { return }
         if photoOutput.isDepthDataDeliverySupported {
-            photoOutput.isDepthDataDeliveryEnabled = shouldEnableDepth
+            photoOutput.isDepthDataDeliveryEnabled = true
         }
-        if shouldEnableDepth,
+        if photoOutput.isDepthDataDeliveryEnabled,
            photoOutput.isPortraitEffectsMatteDeliverySupported {
             photoOutput.isPortraitEffectsMatteDeliveryEnabled = true
-        } else {
-            photoOutput.isPortraitEffectsMatteDeliveryEnabled = false
         }
     }
 
@@ -1005,12 +1007,24 @@ extension CameraModel: AVCapturePhotoCaptureDelegate {
 
         let zoom = activeCaptureZoomFactor
         let includePortraitData = activeCaptureMode == .portrait
-        let aspectRatio = includePortraitData ? .fourThree : activeCaptureAspectRatio
+
+        if includePortraitData {
+            // Keep Portrait captures in the native AVFoundation representation.
+            // This preserves embedded depth/matte data for Photos and avoids the
+            // crash-prone custom Core Image depth rewrite on physical devices.
+            guard let data = photo.fileDataRepresentation() else {
+                finishCapture(with: "Could not create the Portrait photo file")
+                return
+            }
+            saveToPhotos(data: data)
+            return
+        }
+
         guard let data = softwareZoomedFileData(
             for: photo,
             factor: zoom,
-            includePortraitData: includePortraitData,
-            aspectRatio: aspectRatio,
+            includePortraitData: false,
+            aspectRatio: activeCaptureAspectRatio,
             aperture: activeCaptureAperture
         ) else {
             finishCapture(with: "Could not create the photo file")
