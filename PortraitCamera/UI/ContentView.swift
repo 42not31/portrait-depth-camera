@@ -30,14 +30,18 @@ struct ContentView: View {
         return camera.captureMode == .photo ? [1.0, 2.0, 3.0, 4.0, 5.0] : [1.0, 2.0]
     }
 
-    private var zoomTitle: String {
+    private func formattedZoom(_ rawFactor: CGFloat) -> String {
         let displayedZoom = (!camera.isUsingFrontCamera && camera.captureMode == .photo && camera.photoLens == .ultraWide)
-            ? camera.zoomFactor * 0.5
-            : camera.zoomFactor
+            ? rawFactor * 0.5
+            : rawFactor
         let isWholeNumber = abs(displayedZoom.rounded() - displayedZoom) < 0.01
         return isWholeNumber
             ? String(format: "%.0f×", displayedZoom)
             : String(format: "%.1f×", displayedZoom)
+    }
+
+    private var zoomTitle: String {
+        formattedZoom(camera.zoomFactor)
     }
 
     private var previewAspectRatio: CGFloat {
@@ -165,7 +169,7 @@ struct ContentView: View {
                     }
                 )
                 .frame(width: proxy.size.width, height: previewHeight)
-                .clipShape(Rectangle())
+                .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
                 .overlay {
                     if settings.showGrid {
                         GridOverlay().allowsHitTesting(false)
@@ -247,7 +251,7 @@ struct ContentView: View {
         .buttonStyle(CameraPressStyle())
         .overlay(alignment: .bottomLeading) {
             if activeMenuItem == .zoom {
-                ultraWideZoomControlDetail
+                zoomControlDetail
                     .offset(y: -62)
                     .transition(.scale(scale: 0.95, anchor: .bottomLeading).combined(with: .opacity))
             }
@@ -363,7 +367,7 @@ struct ContentView: View {
             case .focus:
                 focusControlDetail
             case .zoom:
-                ultraWideZoomControlDetail
+                zoomControlDetail
             case .lens:
                 lensControlDetail
             case .aspectRatio:
@@ -409,27 +413,34 @@ struct ContentView: View {
         }
     }
 
-    private var ultraWideZoomControlDetail: some View {
-        CameraControlDetail(title: "Ultra Wide Zoom", onClose: { closeActiveControl() }) {
+    private var zoomControlDetail: some View {
+        let bounds = zoomPresets
+        let minZoom = bounds.min() ?? 1.0
+        let maxZoom = bounds.max() ?? 1.0
+        let isUltraWide = !camera.isUsingFrontCamera && camera.captureMode == .photo && camera.photoLens == .ultraWide
+
+        return CameraControlDetail(title: isUltraWide ? "Ultra Wide Zoom" : "Zoom", onClose: { closeActiveControl() }) {
             HStack(spacing: 9) {
-                Text("0.5×")
+                Text(formattedZoom(minZoom))
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
                 Slider(
                     value: Binding(
-                        get: { Double(min(max(camera.zoomFactor, 1.0), 5.0)) },
+                        get: { Double(min(max(camera.zoomFactor, minZoom), maxZoom)) },
                         set: { camera.setZoomFactor(CGFloat($0)) }
                     ),
-                    in: 1...5
+                    in: minZoom...maxZoom
                 )
                 .tint(Color.primary)
-                Text(String(format: "%.1f×", camera.zoomFactor * 0.5))
+                Text(zoomTitle)
                     .font(.system(size: 12, weight: .bold, design: .rounded))
                     .monospacedDigit()
                     .frame(width: 34, alignment: .trailing)
             }
-            Text("Manual crop for the rear Ultra Wide lens")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(Color.primary.opacity(0.62))
+            if isUltraWide {
+                Text("Manual crop for the rear Ultra Wide lens")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.primary.opacity(0.62))
+            }
         }
     }
 
@@ -606,22 +617,10 @@ struct ContentView: View {
     }
 
     private func openZoomControl() {
-        guard !camera.isUsingFrontCamera,
-              camera.captureMode == .photo,
-              camera.photoLens == .ultraWide else {
-            advanceZoom()
-            return
-        }
         withAnimation(.snappy(duration: 0.24, extraBounce: 0)) {
             isMenuOpen = false
             activeMenuItem = .zoom
         }
-    }
-
-    private func advanceZoom() {
-        let currentIndex = zoomPresets.firstIndex { abs($0 - camera.zoomFactor) < 0.08 } ?? 0
-        let nextIndex = (currentIndex + 1) % zoomPresets.count
-        camera.setZoomFactor(zoomPresets[nextIndex])
     }
 
     private var latestPhotoButton: some View {
@@ -765,7 +764,7 @@ private enum CameraMenuItem: String, CaseIterable, Identifiable, Hashable {
     var title: String {
         switch self {
         case .focus: return "Focus"
-        case .zoom: return "Ultra Wide Zoom"
+        case .zoom: return "Zoom"
         case .lens: return "Lens"
         case .aspectRatio: return "Aspect Ratio"
         case .flash: return "Flash"
