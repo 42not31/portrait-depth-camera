@@ -690,30 +690,40 @@ final class CameraModel: NSObject, ObservableObject {
         guard !adjustment.isNeutral else { return image }
         var output = CIImage(cgImage: image)
 
-        if abs(adjustment.tone) > 0.5 {
-            let toneFilter = CIFilter(name: "CIColorControls")
-            toneFilter?.setValue(output, forKey: kCIInputImageKey)
-            toneFilter?.setValue(1.0 + (adjustment.tone / 100.0) * 0.35, forKey: kCIInputContrastKey)
-            toneFilter?.setValue((adjustment.tone / 100.0) * 0.08, forKey: kCIInputBrightnessKey)
-            if let toneOutput = toneFilter?.outputImage { output = toneOutput }
+        if abs(adjustment.tone) > 0.5, let curve = CIFilter(name: "CIToneCurve") {
+            let t = CGFloat(adjustment.tone / 100.0)
+            curve.setValue(output, forKey: kCIInputImageKey)
+            curve.setValue(CIVector(x: 0, y: max(0, 0 - t * 0.04)), forKey: "inputPoint0")
+            curve.setValue(CIVector(x: 0.25, y: 0.25 + t * 0.05), forKey: "inputPoint1")
+            curve.setValue(CIVector(x: 0.5, y: 0.5 + t * 0.08), forKey: "inputPoint2")
+            curve.setValue(CIVector(x: 0.75, y: 0.75 + t * 0.05), forKey: "inputPoint3")
+            curve.setValue(CIVector(x: 1, y: min(1, 1 + t * 0.04)), forKey: "inputPoint4")
+            if let toneOutput = curve.outputImage { output = toneOutput }
         }
 
         if abs(adjustment.color) > 0.5 {
             let tempFilter = CIFilter(name: "CITemperatureAndTint")
             tempFilter?.setValue(output, forKey: kCIInputImageKey)
             let neutralTemp: CGFloat = 6500
-            let shift = CGFloat(adjustment.color / 100.0) * 1500
+            let shift = CGFloat(adjustment.color / 100.0) * 900
             tempFilter?.setValue(CIVector(x: neutralTemp - shift, y: 0), forKey: "inputNeutral")
             tempFilter?.setValue(CIVector(x: neutralTemp, y: 0), forKey: "inputTargetNeutral")
             if let tempOutput = tempFilter?.outputImage { output = tempOutput }
         }
 
         let paletteOffset = adjustment.palette - 50
-        if abs(paletteOffset) > 0.5 {
-            let hueFilter = CIFilter(name: "CIHueAdjust")
-            hueFilter?.setValue(output, forKey: kCIInputImageKey)
-            hueFilter?.setValue(Float(paletteOffset / 50.0) * (.pi / 6), forKey: kCIInputAngleKey)
-            if let hueOutput = hueFilter?.outputImage { output = hueOutput }
+        if abs(paletteOffset) > 0.5, let matrix = CIFilter(name: "CIColorMatrix") {
+            let strength = CGFloat(paletteOffset / 50.0) * 0.05
+            matrix.setValue(output, forKey: kCIInputImageKey)
+            matrix.setValue(CIVector(x: 1, y: 0, z: 0, w: 0), forKey: "inputRVector")
+            matrix.setValue(CIVector(x: 0, y: 1, z: 0, w: 0), forKey: "inputGVector")
+            matrix.setValue(CIVector(x: 0, y: 0, z: 1, w: 0), forKey: "inputBVector")
+            matrix.setValue(CIVector(x: 0, y: 0, z: 0, w: 1), forKey: "inputAVector")
+            matrix.setValue(
+                CIVector(x: strength * 0.6, y: strength * 0.25, z: -strength * 0.6, w: 0),
+                forKey: "inputBiasVector"
+            )
+            if let matrixOutput = matrix.outputImage { output = matrixOutput }
         }
 
         guard let rendered = ciContext.createCGImage(output, from: output.extent) else { return image }
@@ -834,15 +844,16 @@ final class CameraModel: NSObject, ObservableObject {
         return croppedData
     }
 
-    private func croppedPortraitFileData(for photo: AVCapturePhoto, factor: CGFloat, styleAdjustment: PhotoStyleAdjustment) -> Data? {
-        // At 1x with no style applied, there's nothing to change — keep the
-        // native representation, which already carries Apple's own
-        // depth/matte data safely.
-        guard factor > 1.01 || !styleAdjustment.isNeutral else { return photo.fileDataRepresentation() }
+    private func croppedPortraitFileData(for photo: AVCapturePhoto, factor: CGFloat, aperture: CGFloat, styleAdjustment: PhotoStyleAdjustment) -> Data? {
+        guard factor > 1.01 || !styleAdjustment.isNeutral || aperture < 15.95 else {
+            return photo.fileDataRepresentation()
+        }
 
         guard let primaryImage = photo.cgImageRepresentation() else {
             return photo.fileDataRepresentation()
         }
+
+        let blurredImage = depthEffectImage(from: primaryImage, photo: photo, aperture: aperture) ?? primaryImage
 
         let sourceAspectRatio = CGFloat(primaryImage.width) / CGFloat(primaryImage.height)
         let targetAspectRatio = PhotoAspectRatio.fourThree.value
@@ -870,12 +881,7 @@ final class CameraModel: NSObject, ObservableObject {
             height: CGFloat(primaryImage.height) * normalizedCrop.height
         ).integral
 
-        // Crop the color image only — do NOT run it through the
-        // CIDepthOfField filter. Baking blur in software is the crash-prone
-        // path on device; instead the depth/matte data is cropped alongside
-        // the color image so Photos renders Portrait blur natively, exactly
-        // as an uncropped 1x capture does today.
-        guard let croppedImage = primaryImage.cropping(to: cropRect) else {
+        guard let croppedImage = blurredImage.cropping(to: cropRect) else {
             return photo.fileDataRepresentation()
         }
         let styledPortraitImage = applyStyleAdjustment(styleAdjustment, to: croppedImage)
@@ -1173,7 +1179,7 @@ extension CameraModel: AVCapturePhotoCaptureDelegate {
             // Crop to the selected zoom factor while preserving embedded
             // depth/matte data for Photos. At 1x this returns the native
             // AVFoundation representation unchanged (no crop needed).
-            guard let data = croppedPortraitFileData(for: photo, factor: zoom, styleAdjustment: activeCaptureStyle) else {
+            guard let data = croppedPortraitFileData(for: photo, factor: zoom, aperture: activeCaptureAperture, styleAdjustment: activeCaptureStyle) else {
                 finishCapture(with: "Could not create the Portrait photo file")
                 return
             }
