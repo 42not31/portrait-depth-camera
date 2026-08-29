@@ -780,7 +780,7 @@ final class CameraModel: NSObject, ObservableObject {
                 ? (portraitEnabledFileData(for: photo, aperture: aperture) ?? photo.fileDataRepresentation())
                 : photo.fileDataRepresentation()
         }
-        let croppedImage = applyStyleAdjustment(styleAdjustment, to: croppedImage)
+        let styledImage = applyStyleAdjustment(styleAdjustment, to: croppedImage)
 
         var depthAuxiliaryInfo: (CFString, CFDictionary)?
         if includePortraitData, let depth = photo.depthData {
@@ -812,15 +812,15 @@ final class CameraModel: NSObject, ObservableObject {
 
         let croppedMetadata = croppedMetadata(
             from: photo.metadata,
-            width: croppedImage.width,
-            height: croppedImage.height
+            width: styledImage.width,
+            height: styledImage.height
         )
         let outputMetadata = includePortraitData
             ? portraitEnabledMetadata(from: croppedMetadata)
             : croppedMetadata
 
         guard let croppedData = packageImage(
-            croppedImage,
+            styledImage,
             metadata: outputMetadata,
             depthAuxiliaryInfo: depthAuxiliaryInfo,
             matteAuxiliaryInfo: matteAuxiliaryInfo
@@ -878,7 +878,7 @@ final class CameraModel: NSObject, ObservableObject {
         guard let croppedImage = primaryImage.cropping(to: cropRect) else {
             return photo.fileDataRepresentation()
         }
-        let croppedImage = applyStyleAdjustment(styleAdjustment, to: croppedImage)
+        let styledPortraitImage = applyStyleAdjustment(styleAdjustment, to: croppedImage)
 
         var depthAuxiliaryInfo: (CFString, CFDictionary)?
         if let depth = photo.depthData {
@@ -909,11 +909,11 @@ final class CameraModel: NSObject, ObservableObject {
         }
 
         let outputMetadata = portraitEnabledMetadata(
-            from: croppedMetadata(from: photo.metadata, width: croppedImage.width, height: croppedImage.height)
+            from: croppedMetadata(from: photo.metadata, width: styledPortraitImage.width, height: styledPortraitImage.height)
         )
 
         guard let croppedData = packageImage(
-            croppedImage,
+            styledPortraitImage,
             metadata: outputMetadata,
             depthAuxiliaryInfo: depthAuxiliaryInfo,
             matteAuxiliaryInfo: matteAuxiliaryInfo
