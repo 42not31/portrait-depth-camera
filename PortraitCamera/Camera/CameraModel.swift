@@ -373,6 +373,10 @@ final class CameraModel: NSObject, ObservableObject {
         DispatchQueue.main.async { [weak self] in self?.styleAdjustment = .neutral }
     }
 
+    func renderStylePreview(from image: CGImage) -> CGImage {
+        applyStyleAdjustment(styleAdjustment, to: image)
+    }
+
     func setPortraitAperture(_ aperture: CGFloat) {
         let clamped = min(max(aperture, 1.4), 16.0)
         DispatchQueue.main.async { [weak self] in self?.portraitAperture = clamped }

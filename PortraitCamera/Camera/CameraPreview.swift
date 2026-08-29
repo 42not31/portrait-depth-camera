@@ -9,6 +9,7 @@ struct CameraPreview: UIViewRepresentable {
     let videoOrientation: AVCaptureVideoOrientation
     let isMirrored: Bool
     let onTap: (CGPoint, CGPoint) -> Void
+    var onViewReady: ((PreviewView) -> Void)? = nil
 
     func makeUIView(context: Context) -> PreviewView {
         let view = PreviewView()
@@ -19,6 +20,7 @@ struct CameraPreview: UIViewRepresentable {
             isMirrored: isMirrored,
             digitalZoom: max(1.0, zoomFactor / max(deviceZoomFactor, 1.0))
         )
+        onViewReady?(view)
         return view
     }
 
@@ -132,5 +134,12 @@ final class PreviewView: UIView {
         let layerPoint = previewLayer.convert(viewPoint, from: layer)
         let devicePoint = previewLayer.captureDevicePointConverted(fromLayerPoint: layerPoint)
         onTap?(viewPoint, devicePoint)
+    }
+
+    func snapshotImage() -> UIImage? {
+        let renderer = UIGraphicsImageRenderer(bounds: bounds)
+        return renderer.image { context in
+            layer.render(in: context.cgContext)
+        }
     }
 }

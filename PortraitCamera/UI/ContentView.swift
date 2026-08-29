@@ -15,6 +15,9 @@ struct ContentView: View {
     @State private var showSettings = false
     @State private var isMenuOpen = false
     @State private var activeMenuItem: CameraMenuItem?
+    @State private var previewViewRef: PreviewView?
+    @State private var stylePreviewImage: UIImage?
+    @State private var stylePreviewTask: Task<Void, Never>?
 
     private let previewVerticalOffset: CGFloat = 8
     private let captureControlRowOffset: CGFloat = -8
@@ -166,7 +169,8 @@ struct ContentView: View {
                         camera.focus(at: devicePoint)
                         focusPoint = viewPoint
                         focusAnimationID = UUID()
-                    }
+                    },
+                    onViewReady: { previewViewRef = $0 }
                 )
                 .frame(width: proxy.size.width, height: previewHeight)
                 .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
@@ -344,13 +348,13 @@ struct ContentView: View {
                     )
                 }
                 .buttonStyle(CameraPressStyle())
-                .frame(maxWidth: .infinity, minHeight: 52)
+                .frame(maxWidth: .infinity, minHeight: 42)
                 .contentShape(Rectangle())
                 .accessibilityLabel(item.accessibilityLabel)
             }
         }
-        .padding(settings.menuDisplayStyle == .iconsOnly ? 10 : 12)
-        .frame(width: settings.menuDisplayStyle == .iconsOnly ? 78 : 286)
+        .padding(settings.menuDisplayStyle == .iconsOnly ? 8 : 9)
+        .frame(width: settings.menuDisplayStyle == .iconsOnly ? 66 : 240)
         .background(Color.black.opacity(0.12), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
         .camProGlass(RoundedRectangle(cornerRadius: 28, style: .continuous))
         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
@@ -543,6 +547,19 @@ struct ContentView: View {
 
     private var styleControlDetail: some View {
         CameraControlDetail(title: "Style", onClose: { closeActiveControl() }) {
+            Group {
+                if let stylePreviewImage {
+                    Image(uiImage: stylePreviewImage)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    Color.black.opacity(0.2)
+                }
+            }
+            .frame(height: 80)
+            .frame(maxWidth: .infinity)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
             HStack {
                 Text("TONE \(Int(camera.styleAdjustment.tone))")
                 Spacer()
@@ -550,46 +567,43 @@ struct ContentView: View {
                 Spacer()
                 Button {
                     camera.resetStyleAdjustment()
+                    scheduleStylePreviewUpdate()
                 } label: {
                     Image(systemName: "arrow.counterclockwise")
-                        .font(.system(size: 11, weight: .bold))
+                        .font(.system(size: 10, weight: .bold))
                 }
                 .buttonStyle(CameraPressStyle())
                 .accessibilityLabel("Reset style")
             }
-            .font(.system(size: 10, weight: .bold, design: .rounded))
+            .font(.system(size: 9, weight: .bold, design: .rounded))
             .foregroundStyle(Color.primary.opacity(0.62))
 
             StyleGridPad(
                 tone: Binding(
                     get: { camera.styleAdjustment.tone },
-                    set: { camera.setStyleAdjustment(tone: $0) }
+                    set: { camera.setStyleAdjustment(tone: $0); scheduleStylePreviewUpdate() }
                 ),
                 color: Binding(
                     get: { camera.styleAdjustment.color },
-                    set: { camera.setStyleAdjustment(color: $0) }
+                    set: { camera.setStyleAdjustment(color: $0); scheduleStylePreviewUpdate() }
                 )
             )
-            .frame(height: 180)
+            .frame(height: 130)
             .frame(maxWidth: .infinity)
 
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text("PALETTE \(Int(camera.styleAdjustment.palette))")
-                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .font(.system(size: 9, weight: .bold, design: .rounded))
                     .foregroundStyle(Color.primary.opacity(0.62))
                 Slider(
                     value: Binding(
                         get: { camera.styleAdjustment.palette },
-                        set: { camera.setStyleAdjustment(palette: $0) }
+                        set: { camera.setStyleAdjustment(palette: $0); scheduleStylePreviewUpdate() }
                     ),
                     in: 0...100
                 )
                 .tint(Color.primary)
             }
-
-            Text("Baked into the photo at capture. Preview updates after you shoot, not live in the viewfinder.")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(Color.primary.opacity(0.62))
         }
     }
 
@@ -699,6 +713,22 @@ struct ContentView: View {
                 isMenuOpen = false
                 activeMenuItem = .style
             }
+            updateStylePreview()
+        }
+    }
+
+    private func updateStylePreview() {
+        guard let rawImage = previewViewRef?.snapshotImage(), let cgImage = rawImage.cgImage else { return }
+        let processed = camera.renderStylePreview(from: cgImage)
+        stylePreviewImage = UIImage(cgImage: processed)
+    }
+
+    private func scheduleStylePreviewUpdate() {
+        stylePreviewTask?.cancel()
+        stylePreviewTask = Task {
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            guard !Task.isCancelled else { return }
+            updateStylePreview()
         }
     }
 
@@ -900,42 +930,42 @@ private struct CameraMenuRow: View {
     let displayStyle: MenuDisplayStyle
 
     var body: some View {
-        HStack(spacing: 11) {
+        HStack(spacing: 8) {
             Image(systemName: item.systemImage)
-                .font(.system(size: 17, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold))
                 .symbolRenderingMode(.hierarchical)
-                .frame(width: 30, height: 30)
+                .frame(width: 24, height: 24)
                 .foregroundStyle(.primary)
 
             if displayStyle == .iconsAndText {
                 Text(item.title)
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
                 Spacer(minLength: 0)
             }
 
             if displayStyle == .iconsAndText, let valueText {
                 Text(valueText)
-                    .font(.system(size: 11, weight: .bold, design: .rounded))
-                    .tracking(0.45)
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .tracking(0.4)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
         }
         .foregroundStyle(.primary)
-        .padding(.horizontal, 10)
-        .frame(width: displayStyle == .iconsOnly ? 58 : 262, height: 52)
+        .padding(.horizontal, 8)
+        .frame(width: displayStyle == .iconsOnly ? 46 : 220, height: 42)
         .background {
-            RoundedRectangle(cornerRadius: 17, style: .continuous)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(isSelected ? CamProTheme.accent.opacity(0.22) : Color.white.opacity(0.07))
         }
         .overlay {
             if isSelected {
-                RoundedRectangle(cornerRadius: 17, style: .continuous)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .stroke(CamProTheme.accent.opacity(0.44), lineWidth: 0.8)
             }
         }
-        .camProGlass(RoundedRectangle(cornerRadius: 17, style: .continuous))
-        .contentShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
+        .camProGlass(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 
@@ -1002,16 +1032,16 @@ private struct CameraControlDetail<Content: View>: View {
     @ViewBuilder let content: () -> Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 11) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text(title)
-                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
                     .foregroundStyle(Color.primary.opacity(0.72))
                 Spacer()
                 Button(action: onClose) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .bold))
-                        .frame(width: 27, height: 27)
+                        .font(.system(size: 10, weight: .bold))
+                        .frame(width: 22, height: 22)
                         .camProGlass(Circle())
                 }
                 .buttonStyle(CameraPressStyle())
@@ -1019,10 +1049,10 @@ private struct CameraControlDetail<Content: View>: View {
             }
             content()
         }
-        .padding(14)
-        .frame(width: 286)
-        .background(Color.black.opacity(0.12), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-        .camProGlass(RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .padding(10)
+        .frame(width: 240)
+        .background(Color.black.opacity(0.12), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .camProGlass(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .shadow(color: .black.opacity(0.24), radius: 18, y: 8)
     }
 }
