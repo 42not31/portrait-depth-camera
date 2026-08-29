@@ -6,6 +6,18 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
+struct PhotoStyleAdjustment: Equatable {
+    var tone: Double = 0       // -100...100, shadow/highlight balance
+    var color: Double = 0      // -100...100, warm/cool tint
+    var palette: Double = 50   // 0...100, hue rotation (50 = neutral)
+
+    static let neutral = PhotoStyleAdjustment()
+
+    var isNeutral: Bool {
+        abs(tone) < 0.5 && abs(color) < 0.5 && abs(palette - 50) < 0.5
+    }
+}
+
 final class CameraModel: NSObject, ObservableObject {
     let session = AVCaptureSession()
 
@@ -29,6 +41,8 @@ final class CameraModel: NSObject, ObservableObject {
     @Published private(set) var isUsingFrontCamera = false
     @Published var permissionDenied = false
     @Published var statusMessage: String?
+    @Published private(set) var portraitAperture: CGFloat = 2.8
+    @Published private(set) var styleAdjustment = PhotoStyleAdjustment()
 
     private let sessionQueue = DispatchQueue(label: "com.privateportrait.camera.session")
     private let photoOutput = AVCapturePhotoOutput()
@@ -43,6 +57,7 @@ final class CameraModel: NSObject, ObservableObject {
     private var activeCaptureAspectRatio: PhotoAspectRatio = .fourThree
     private var activeCaptureFlashMode: PhotoFlashMode = .off
     private var activeCaptureAperture: CGFloat = 2.8
+    private var activeCaptureStyle = PhotoStyleAdjustment()
     private var activeVideoOrientation: AVCaptureVideoOrientation = .portrait
     private var activeCameraPosition: AVCaptureDevice.Position = .back
     private var mirrorFrontCamera = true
@@ -111,7 +126,8 @@ final class CameraModel: NSObject, ObservableObject {
         let requestedMode = captureMode
         let requestedAspectRatio = photoAspectRatio
         let requestedFlashMode = photoFlashMode
-        let requestedDepthAperture: CGFloat = 2.8
+        let requestedDepthAperture: CGFloat = portraitAperture
+        let requestedStyle: PhotoStyleAdjustment = styleAdjustment
 
         sessionQueue.async { [weak self] in
             guard let self else { return }
@@ -132,6 +148,7 @@ final class CameraModel: NSObject, ObservableObject {
             self.activeCaptureAspectRatio = requestedAspectRatio
             self.activeCaptureFlashMode = requestedFlashMode
             self.activeCaptureAperture = requestedDepthAperture
+            self.activeCaptureStyle = requestedStyle
             DispatchQueue.main.async { self.isCapturing = true }
             self.captureSinglePhoto(
                 includePortraitData: requestedMode == .portrait,
@@ -342,6 +359,23 @@ final class CameraModel: NSObject, ObservableObject {
                 DispatchQueue.main.async { self.statusMessage = "Manual exposure is unavailable" }
             }
         }
+    }
+
+    func setStyleAdjustment(tone: Double? = nil, color: Double? = nil, palette: Double? = nil) {
+        var updated = styleAdjustment
+        if let tone { updated.tone = min(max(tone, -100), 100) }
+        if let color { updated.color = min(max(color, -100), 100) }
+        if let palette { updated.palette = min(max(palette, 0), 100) }
+        DispatchQueue.main.async { [weak self] in self?.styleAdjustment = updated }
+    }
+
+    func resetStyleAdjustment() {
+        DispatchQueue.main.async { [weak self] in self?.styleAdjustment = .neutral }
+    }
+
+    func setPortraitAperture(_ aperture: CGFloat) {
+        let clamped = min(max(aperture, 1.4), 16.0)
+        DispatchQueue.main.async { [weak self] in self?.portraitAperture = clamped }
     }
 
     func setZoomFactor(_ requestedFactor: CGFloat) {
@@ -652,14 +686,49 @@ final class CameraModel: NSObject, ObservableObject {
         }
     }
 
+    private func applyStyleAdjustment(_ adjustment: PhotoStyleAdjustment, to image: CGImage) -> CGImage {
+        guard !adjustment.isNeutral else { return image }
+        var output = CIImage(cgImage: image)
+
+        if abs(adjustment.tone) > 0.5 {
+            let toneFilter = CIFilter(name: "CIColorControls")
+            toneFilter?.setValue(output, forKey: kCIInputImageKey)
+            toneFilter?.setValue(1.0 + (adjustment.tone / 100.0) * 0.35, forKey: kCIInputContrastKey)
+            toneFilter?.setValue((adjustment.tone / 100.0) * 0.08, forKey: kCIInputBrightnessKey)
+            if let toneOutput = toneFilter?.outputImage { output = toneOutput }
+        }
+
+        if abs(adjustment.color) > 0.5 {
+            let tempFilter = CIFilter(name: "CITemperatureAndTint")
+            tempFilter?.setValue(output, forKey: kCIInputImageKey)
+            let neutralTemp: CGFloat = 6500
+            let shift = CGFloat(adjustment.color / 100.0) * 1500
+            tempFilter?.setValue(CIVector(x: neutralTemp - shift, y: 0), forKey: "inputNeutral")
+            tempFilter?.setValue(CIVector(x: neutralTemp, y: 0), forKey: "inputTargetNeutral")
+            if let tempOutput = tempFilter?.outputImage { output = tempOutput }
+        }
+
+        let paletteOffset = adjustment.palette - 50
+        if abs(paletteOffset) > 0.5 {
+            let hueFilter = CIFilter(name: "CIHueAdjust")
+            hueFilter?.setValue(output, forKey: kCIInputImageKey)
+            hueFilter?.setValue(Float(paletteOffset / 50.0) * (.pi / 6), forKey: kCIInputAngleKey)
+            if let hueOutput = hueFilter?.outputImage { output = hueOutput }
+        }
+
+        guard let rendered = ciContext.createCGImage(output, from: output.extent) else { return image }
+        return rendered
+    }
+
     private func softwareZoomedFileData(
         for photo: AVCapturePhoto,
         factor: CGFloat,
         includePortraitData: Bool,
         aspectRatio: PhotoAspectRatio,
-        aperture: CGFloat
+        aperture: CGFloat,
+        styleAdjustment: PhotoStyleAdjustment
     ) -> Data? {
-        guard factor > 1.01 || aspectRatio != .fourThree || includePortraitData else {
+        guard factor > 1.01 || aspectRatio != .fourThree || includePortraitData || !styleAdjustment.isNeutral else {
             return photo.fileDataRepresentation()
         }
         guard let primaryImage = photo.cgImageRepresentation() else {
@@ -711,6 +780,7 @@ final class CameraModel: NSObject, ObservableObject {
                 ? (portraitEnabledFileData(for: photo, aperture: aperture) ?? photo.fileDataRepresentation())
                 : photo.fileDataRepresentation()
         }
+        let croppedImage = applyStyleAdjustment(styleAdjustment, to: croppedImage)
 
         var depthAuxiliaryInfo: (CFString, CFDictionary)?
         if includePortraitData, let depth = photo.depthData {
@@ -764,10 +834,11 @@ final class CameraModel: NSObject, ObservableObject {
         return croppedData
     }
 
-    private func croppedPortraitFileData(for photo: AVCapturePhoto, factor: CGFloat) -> Data? {
-        // At 1x there's nothing to crop — keep the native representation,
-        // which already carries Apple's own depth/matte data safely.
-        guard factor > 1.01 else { return photo.fileDataRepresentation() }
+    private func croppedPortraitFileData(for photo: AVCapturePhoto, factor: CGFloat, styleAdjustment: PhotoStyleAdjustment) -> Data? {
+        // At 1x with no style applied, there's nothing to change — keep the
+        // native representation, which already carries Apple's own
+        // depth/matte data safely.
+        guard factor > 1.01 || !styleAdjustment.isNeutral else { return photo.fileDataRepresentation() }
 
         guard let primaryImage = photo.cgImageRepresentation() else {
             return photo.fileDataRepresentation()
@@ -807,6 +878,7 @@ final class CameraModel: NSObject, ObservableObject {
         guard let croppedImage = primaryImage.cropping(to: cropRect) else {
             return photo.fileDataRepresentation()
         }
+        let croppedImage = applyStyleAdjustment(styleAdjustment, to: croppedImage)
 
         var depthAuxiliaryInfo: (CFString, CFDictionary)?
         if let depth = photo.depthData {
@@ -1101,7 +1173,7 @@ extension CameraModel: AVCapturePhotoCaptureDelegate {
             // Crop to the selected zoom factor while preserving embedded
             // depth/matte data for Photos. At 1x this returns the native
             // AVFoundation representation unchanged (no crop needed).
-            guard let data = croppedPortraitFileData(for: photo, factor: zoom) else {
+            guard let data = croppedPortraitFileData(for: photo, factor: zoom, styleAdjustment: activeCaptureStyle) else {
                 finishCapture(with: "Could not create the Portrait photo file")
                 return
             }
@@ -1114,7 +1186,8 @@ extension CameraModel: AVCapturePhotoCaptureDelegate {
             factor: zoom,
             includePortraitData: false,
             aspectRatio: activeCaptureAspectRatio,
-            aperture: activeCaptureAperture
+            aperture: activeCaptureAperture,
+            styleAdjustment: activeCaptureStyle
         ) else {
             finishCapture(with: "Could not create the photo file")
             return
