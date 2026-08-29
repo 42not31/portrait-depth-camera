@@ -63,17 +63,17 @@ struct ContentView: View {
     private var visibleMenuItems: [CameraMenuItem] {
         if camera.isUsingFrontCamera {
             return camera.captureMode == .photo
-                ? [.aspectRatio, .flash, .exposure, .settings]
-                : [.flash, .exposure, .settings]
+                ? [.aspectRatio, .flash, .exposure, .style, .settings]
+                : [.depth, .flash, .exposure, .style, .settings]
         }
         guard camera.captureMode == .photo else {
-            return [.flash, .exposure, .settings]
+            return [.depth, .zoom, .flash, .exposure, .style, .settings]
         }
         var items: [CameraMenuItem] = []
         if isFocusSupported {
             items.append(.focus)
         }
-        items += [.lens, .aspectRatio, .flash, .exposure, .settings]
+        items += [.lens, .aspectRatio, .flash, .exposure, .style, .settings]
         return items
     }
 
@@ -376,6 +376,10 @@ struct ContentView: View {
                 flashControlDetail
             case .exposure:
                 exposureControlDetail
+            case .depth:
+                depthControlDetail
+            case .style:
+                styleControlDetail
             case .settings:
                 EmptyView()
             }
@@ -508,6 +512,87 @@ struct ContentView: View {
         }
     }
 
+    private var depthControlDetail: some View {
+        // Aperture scale: f/1.4 (max blur) → f/16 (no blur).
+        // Slider is inverted so dragging right = more blur, matching Apple's Depth control.
+        let minAperture: CGFloat = 1.4
+        let maxAperture: CGFloat = 16.0
+        let apertureLabel = String(format: "f/%.1f", camera.portraitAperture)
+        return CameraControlDetail(title: "Depth", onClose: { closeActiveControl() }) {
+            HStack(spacing: 10) {
+                Image(systemName: "camera.aperture")
+                    .font(.system(size: 14, weight: .semibold))
+                Slider(
+                    value: Binding(
+                        get: { Double(maxAperture - camera.portraitAperture + minAperture) },
+                        set: { camera.setPortraitAperture(CGFloat(maxAperture - $0 + minAperture)) }
+                    ),
+                    in: minAperture...maxAperture
+                )
+                .tint(Color.primary)
+                Text(apertureLabel)
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .frame(width: 46, alignment: .trailing)
+            }
+            Text("Controls Portrait depth blur. Drag right for more blur.")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Color.primary.opacity(0.62))
+        }
+    }
+
+    private var styleControlDetail: some View {
+        CameraControlDetail(title: "Style", onClose: { closeActiveControl() }) {
+            HStack {
+                Text("TONE \(Int(camera.styleAdjustment.tone))")
+                Spacer()
+                Text("COLOUR \(Int(camera.styleAdjustment.color))")
+                Spacer()
+                Button {
+                    camera.resetStyleAdjustment()
+                } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.system(size: 11, weight: .bold))
+                }
+                .buttonStyle(CameraPressStyle())
+                .accessibilityLabel("Reset style")
+            }
+            .font(.system(size: 10, weight: .bold, design: .rounded))
+            .foregroundStyle(Color.primary.opacity(0.62))
+
+            StyleGridPad(
+                tone: Binding(
+                    get: { camera.styleAdjustment.tone },
+                    set: { camera.setStyleAdjustment(tone: $0) }
+                ),
+                color: Binding(
+                    get: { camera.styleAdjustment.color },
+                    set: { camera.setStyleAdjustment(color: $0) }
+                )
+            )
+            .frame(height: 180)
+            .frame(maxWidth: .infinity)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("PALETTE \(Int(camera.styleAdjustment.palette))")
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color.primary.opacity(0.62))
+                Slider(
+                    value: Binding(
+                        get: { camera.styleAdjustment.palette },
+                        set: { camera.setStyleAdjustment(palette: $0) }
+                    ),
+                    in: 0...100
+                )
+                .tint(Color.primary)
+            }
+
+            Text("Baked into the photo at capture. Preview updates after you shoot, not live in the viewfinder.")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Color.primary.opacity(0.62))
+        }
+    }
+
     private func stateButton(title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
@@ -557,6 +642,10 @@ struct ContentView: View {
             return camera.photoFlashMode.title
         case .exposure:
             return camera.manualControlsEnabled ? String(format: "%+.1f", camera.exposureBias) : "AUTO"
+        case .depth:
+            return String(format: "f/%.1f", camera.portraitAperture)
+        case .style:
+            return camera.styleAdjustment.isNeutral ? "OFF" : "ON"
         case .settings:
             return nil
         }
@@ -600,6 +689,16 @@ struct ContentView: View {
                 camera.setPhotoLens(lenses[(index + 1) % lenses.count])
             }
             dismissMenu()
+        case .depth:
+            withAnimation(.easeOut(duration: 0.18)) {
+                isMenuOpen = false
+                activeMenuItem = .depth
+            }
+        case .style:
+            withAnimation(.easeOut(duration: 0.18)) {
+                isMenuOpen = false
+                activeMenuItem = .style
+            }
         }
     }
 
@@ -757,6 +856,8 @@ private enum CameraMenuItem: String, CaseIterable, Identifiable, Hashable {
     case aspectRatio
     case flash
     case exposure
+    case depth
+    case style
     case settings
 
     var id: String { rawValue }
@@ -769,6 +870,8 @@ private enum CameraMenuItem: String, CaseIterable, Identifiable, Hashable {
         case .aspectRatio: return "Aspect Ratio"
         case .flash: return "Flash"
         case .exposure: return "Exposure"
+        case .depth: return "Depth"
+        case .style: return "Style"
         case .settings: return "Settings"
         }
     }
@@ -781,6 +884,8 @@ private enum CameraMenuItem: String, CaseIterable, Identifiable, Hashable {
         case .aspectRatio: return "viewfinder"
         case .flash: return "bolt.fill"
         case .exposure: return "sun.max"
+        case .depth: return "camera.aperture"
+        case .style: return "paintpalette"
         case .settings: return "gearshape"
         }
     }
@@ -831,6 +936,63 @@ private struct CameraMenuRow: View {
         }
         .camProGlass(RoundedRectangle(cornerRadius: 17, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
+    }
+}
+
+private struct StyleGridPad: View {
+    @Binding var tone: Double     // -100...100, vertical axis (up = brighter)
+    @Binding var color: Double    // -100...100, horizontal axis (right = warmer)
+
+    var body: some View {
+        GeometryReader { proxy in
+            let size = proxy.size
+            let dotSpacing: CGFloat = 16
+            let columns = max(Int(size.width / dotSpacing), 1)
+            let rows = max(Int(size.height / dotSpacing), 1)
+
+            ZStack {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.blue.opacity(0.22), Color.black.opacity(0.04), Color.orange.opacity(0.22)],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+
+                ForEach(0..<rows, id: \.self) { row in
+                    ForEach(0..<columns, id: \.self) { col in
+                        Circle()
+                            .fill(Color.primary.opacity(0.16))
+                            .frame(width: 2.4, height: 2.4)
+                            .position(
+                                x: CGFloat(col) * dotSpacing + dotSpacing / 2,
+                                y: CGFloat(row) * dotSpacing + dotSpacing / 2
+                            )
+                    }
+                }
+
+                Circle()
+                    .fill(.white)
+                    .overlay(Circle().stroke(Color.black.opacity(0.15), lineWidth: 1))
+                    .frame(width: 22, height: 22)
+                    .shadow(radius: 3)
+                    .position(
+                        x: size.width * CGFloat((color + 100) / 200),
+                        y: size.height * CGFloat(1 - (tone + 100) / 200)
+                    )
+            }
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        let clampedX = min(max(value.location.x, 0), size.width)
+                        let clampedY = min(max(value.location.y, 0), size.height)
+                        color = Double((clampedX / size.width) * 200 - 100)
+                        tone = Double((1 - clampedY / size.height) * 200 - 100)
+                    }
+            )
+        }
     }
 }
 
