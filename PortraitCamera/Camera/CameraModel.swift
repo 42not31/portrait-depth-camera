@@ -393,6 +393,10 @@ final class CameraModel: NSObject, ObservableObject {
             case .dramatic: return PhotoStyleAdjustment(tone: -18, color: -6, palette: 60)
             case .coolContrast: return PhotoStyleAdjustment(tone: -8, color: -30, palette: 40)
             case .monochrome: return PhotoStyleAdjustment(tone: 0, color: 0, palette: 0)
+            case .cinematic: return PhotoStyleAdjustment(tone: -22, color: 12, palette: 68)
+            case .vivid: return PhotoStyleAdjustment(tone: 8, color: 10, palette: 86)
+            case .soft: return PhotoStyleAdjustment(tone: 22, color: 16, palette: 56)
+            case .noir: return PhotoStyleAdjustment(tone: -30, color: -4, palette: 0)
             }
         }
     }
