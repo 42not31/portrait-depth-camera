@@ -848,16 +848,14 @@ final class CameraModel: NSObject, ObservableObject {
         return croppedData
     }
 
-    private func croppedPortraitFileData(for photo: AVCapturePhoto, factor: CGFloat, aperture: CGFloat, styleAdjustment: PhotoStyleAdjustment) -> Data? {
-        guard factor > 1.01 || !styleAdjustment.isNeutral || aperture < 15.95 else {
+    private func croppedPortraitFileData(for photo: AVCapturePhoto, factor: CGFloat, styleAdjustment: PhotoStyleAdjustment) -> Data? {
+        guard factor > 1.01 || !styleAdjustment.isNeutral else {
             return photo.fileDataRepresentation()
         }
 
         guard let primaryImage = photo.cgImageRepresentation() else {
             return photo.fileDataRepresentation()
         }
-
-        let blurredImage = depthEffectImage(from: primaryImage, photo: photo, aperture: aperture) ?? primaryImage
 
         let sourceAspectRatio = CGFloat(primaryImage.width) / CGFloat(primaryImage.height)
         let targetAspectRatio = PhotoAspectRatio.fourThree.value
@@ -885,7 +883,7 @@ final class CameraModel: NSObject, ObservableObject {
             height: CGFloat(primaryImage.height) * normalizedCrop.height
         ).integral
 
-        guard let croppedImage = blurredImage.cropping(to: cropRect) else {
+        guard let croppedImage = primaryImage.cropping(to: cropRect) else {
             return photo.fileDataRepresentation()
         }
         let styledPortraitImage = applyStyleAdjustment(styleAdjustment, to: croppedImage)
@@ -1183,7 +1181,7 @@ extension CameraModel: AVCapturePhotoCaptureDelegate {
             // Crop to the selected zoom factor while preserving embedded
             // depth/matte data for Photos. At 1x this returns the native
             // AVFoundation representation unchanged (no crop needed).
-            guard let data = croppedPortraitFileData(for: photo, factor: zoom, aperture: activeCaptureAperture, styleAdjustment: activeCaptureStyle) else {
+            guard let data = croppedPortraitFileData(for: photo, factor: zoom, styleAdjustment: activeCaptureStyle) else {
                 finishCapture(with: "Could not create the Portrait photo file")
                 return
             }
