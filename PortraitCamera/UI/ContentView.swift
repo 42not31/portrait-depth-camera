@@ -64,16 +64,16 @@ struct ContentView: View {
         if camera.isUsingFrontCamera {
             return camera.captureMode == .photo
                 ? [.aspectRatio, .flash, .exposure, .style, .settings]
-                : [.flash, .exposure, .style, .settings]
+                : [.flash, .exposure, .style, .cinematic, .settings]
         }
         guard camera.captureMode == .photo else {
-            return [.zoom, .flash, .exposure, .style, .settings]
+            return [.zoom, .flash, .exposure, .style, .cinematic, .settings]
         }
         var items: [CameraMenuItem] = []
         if isFocusSupported {
             items.append(.focus)
         }
-        items += [.lens, .aspectRatio, .flash, .exposure, .style, .settings]
+        items += [.lens, .aspectRatio, .flash, .exposure, .style, .cinematic, .settings]
         return items
     }
 
@@ -419,6 +419,8 @@ struct ContentView: View {
                 exposureControlDetail
             case .style:
                 styleControlDetail
+            case .cinematic:
+                cinematicControlDetail
             case .settings:
                 EmptyView()
             }
@@ -657,6 +659,25 @@ struct ContentView: View {
         }
     }
 
+    private var cinematicControlDetail: some View {
+        CameraControlDetail(title: "Cinematic Lens", onClose: { closeActiveControl() }) {
+            Text("APPLIED TO THE CAPTURED PHOTO")
+                .font(.system(size: 9, weight: .bold, design: .rounded))
+                .foregroundStyle(Color.primary.opacity(0.62))
+            HStack(spacing: 6) {
+                ForEach(CinematicLensEffect.allCases) { effect in
+                    choiceButton(effect.rawValue, isSelected: camera.cinematicLensEffect == effect) {
+                        camera.setCinematicLensEffect(effect)
+                        activeMenuItem = nil
+                    }
+                }
+            }
+            Text("Uses a restrained grade, bloom, and vignette for a natural movie-like finish. Portrait depth data is preserved when available.")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Color.primary.opacity(0.62))
+        }
+    }
+
     private func stateButton(title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
@@ -708,6 +729,8 @@ struct ContentView: View {
             return camera.manualControlsEnabled ? String(format: "%+.1f", camera.exposureBias) : "AUTO"
         case .style:
             return camera.styleAdjustment.isNeutral ? "OFF" : "ON"
+        case .cinematic:
+            return camera.cinematicLensEffect.rawValue
         case .settings:
             return nil
         }
@@ -755,6 +778,11 @@ struct ContentView: View {
             withAnimation(.easeOut(duration: 0.18)) {
                 isMenuOpen = false
                 activeMenuItem = .style
+            }
+        case .cinematic:
+            withAnimation(.easeOut(duration: 0.18)) {
+                isMenuOpen = false
+                activeMenuItem = .cinematic
             }
         }
     }
@@ -894,6 +922,7 @@ private enum CameraMenuItem: String, CaseIterable, Identifiable, Hashable {
     case flash
     case exposure
     case style
+    case cinematic
     case settings
 
     var id: String { rawValue }
@@ -907,6 +936,7 @@ private enum CameraMenuItem: String, CaseIterable, Identifiable, Hashable {
         case .flash: return "Flash"
         case .exposure: return "Exposure"
         case .style: return "Style"
+        case .cinematic: return "Cinematic Lens"
         case .settings: return "Settings"
         }
     }
@@ -920,6 +950,7 @@ private enum CameraMenuItem: String, CaseIterable, Identifiable, Hashable {
         case .flash: return "bolt.fill"
         case .exposure: return "sun.max"
         case .style: return "paintpalette"
+        case .cinematic: return "camera.filters"
         case .settings: return "gearshape"
         }
     }
