@@ -67,10 +67,10 @@ struct ContentView: View {
         if camera.isUsingFrontCamera {
             return camera.captureMode == .photo
                 ? [.aspectRatio, .flash, .exposure, .style, .settings]
-                : [.depth, .flash, .exposure, .style, .settings]
+                : [.flash, .exposure, .style, .settings]
         }
         guard camera.captureMode == .photo else {
-            return [.depth, .zoom, .flash, .exposure, .style, .settings]
+            return [.zoom, .flash, .exposure, .style, .settings]
         }
         var items: [CameraMenuItem] = []
         if isFocusSupported {
@@ -231,8 +231,9 @@ struct ContentView: View {
 
     private var bottomNavigationRow: some View {
         HStack(spacing: 0) {
-            latestPhotoButton
+            Color.clear
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityHidden(true)
 
             modePicker
                 .frame(maxWidth: .infinity)
@@ -348,18 +349,18 @@ struct ContentView: View {
                     )
                 }
                 .buttonStyle(CameraPressStyle())
-                .frame(maxWidth: .infinity, minHeight: 42)
+                .frame(maxWidth: .infinity, minHeight: 36)
                 .contentShape(Rectangle())
                 .accessibilityLabel(item.accessibilityLabel)
             }
         }
-        .padding(settings.menuDisplayStyle == .iconsOnly ? 8 : 9)
-        .frame(width: settings.menuDisplayStyle == .iconsOnly ? 66 : 240)
-        .background(Color.black.opacity(0.12), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-        .camProGlass(RoundedRectangle(cornerRadius: 28, style: .continuous))
-        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-        .contentShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-        .shadow(color: .black.opacity(0.34), radius: 24, y: 12)
+        .padding(settings.menuDisplayStyle == .iconsOnly ? 6 : 7)
+        .frame(width: settings.menuDisplayStyle == .iconsOnly ? 60 : 212)
+        .background(Color.black.opacity(0.12), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .camProGlass(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .shadow(color: .black.opacity(0.30), radius: 16, y: 8)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Camera menu")
     }
@@ -380,8 +381,6 @@ struct ContentView: View {
                 flashControlDetail
             case .exposure:
                 exposureControlDetail
-            case .depth:
-                depthControlDetail
             case .style:
                 styleControlDetail
             case .settings:
@@ -516,35 +515,6 @@ struct ContentView: View {
         }
     }
 
-    private var depthControlDetail: some View {
-        // Aperture scale: f/1.4 (max blur) → f/16 (no blur).
-        // Slider is inverted so dragging right = more blur, matching Apple's Depth control.
-        let minAperture: CGFloat = 1.4
-        let maxAperture: CGFloat = 16.0
-        let apertureLabel = String(format: "f/%.1f", camera.portraitAperture)
-        return CameraControlDetail(title: "Depth", onClose: { closeActiveControl() }) {
-            HStack(spacing: 10) {
-                Image(systemName: "camera.aperture")
-                    .font(.system(size: 14, weight: .semibold))
-                Slider(
-                    value: Binding(
-                        get: { Double(maxAperture - camera.portraitAperture + minAperture) },
-                        set: { camera.setPortraitAperture(CGFloat(maxAperture - $0 + minAperture)) }
-                    ),
-                    in: minAperture...maxAperture
-                )
-                .tint(Color.primary)
-                Text(apertureLabel)
-                    .font(.system(size: 13, weight: .bold, design: .rounded))
-                    .monospacedDigit()
-                    .frame(width: 46, alignment: .trailing)
-            }
-            Text("Controls Portrait depth blur. Drag right for more blur.")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(Color.primary.opacity(0.62))
-        }
-    }
-
     private var styleControlDetail: some View {
         CameraControlDetail(title: "Style", onClose: { closeActiveControl() }) {
             Group {
@@ -656,8 +626,6 @@ struct ContentView: View {
             return camera.photoFlashMode.title
         case .exposure:
             return camera.manualControlsEnabled ? String(format: "%+.1f", camera.exposureBias) : "AUTO"
-        case .depth:
-            return String(format: "f/%.1f", camera.portraitAperture)
         case .style:
             return camera.styleAdjustment.isNeutral ? "OFF" : "ON"
         case .settings:
@@ -703,11 +671,6 @@ struct ContentView: View {
                 camera.setPhotoLens(lenses[(index + 1) % lenses.count])
             }
             dismissMenu()
-        case .depth:
-            withAnimation(.easeOut(duration: 0.18)) {
-                isMenuOpen = false
-                activeMenuItem = .depth
-            }
         case .style:
             withAnimation(.easeOut(duration: 0.18)) {
                 isMenuOpen = false
@@ -752,26 +715,6 @@ struct ContentView: View {
         }
     }
 
-    private var latestPhotoButton: some View {
-        Button { camera.openLatestPhotoInPhotos() } label: {
-            Group {
-                if let image = camera.latestPhotoImage {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                } else {
-                    Color.clear
-                }
-            }
-            .frame(width: 46, height: 46)
-            .clipShape(Circle())
-            .camProGlass(Circle())
-        }
-        .buttonStyle(CameraPressStyle())
-        .disabled(camera.latestPhotoImage == nil)
-        .opacity(camera.latestPhotoImage == nil ? 0.78 : 1)
-        .accessibilityLabel(camera.latestPhotoImage == nil ? "No photo captured yet" : "Open latest photo in Photos")
-    }
 
     private var modePicker: some View {
         HStack(spacing: 0) {
@@ -886,7 +829,6 @@ private enum CameraMenuItem: String, CaseIterable, Identifiable, Hashable {
     case aspectRatio
     case flash
     case exposure
-    case depth
     case style
     case settings
 
@@ -900,7 +842,6 @@ private enum CameraMenuItem: String, CaseIterable, Identifiable, Hashable {
         case .aspectRatio: return "Aspect Ratio"
         case .flash: return "Flash"
         case .exposure: return "Exposure"
-        case .depth: return "Depth"
         case .style: return "Style"
         case .settings: return "Settings"
         }
@@ -914,7 +855,6 @@ private enum CameraMenuItem: String, CaseIterable, Identifiable, Hashable {
         case .aspectRatio: return "viewfinder"
         case .flash: return "bolt.fill"
         case .exposure: return "sun.max"
-        case .depth: return "camera.aperture"
         case .style: return "paintpalette"
         case .settings: return "gearshape"
         }
@@ -953,7 +893,7 @@ private struct CameraMenuRow: View {
         }
         .foregroundStyle(.primary)
         .padding(.horizontal, 8)
-        .frame(width: displayStyle == .iconsOnly ? 46 : 220, height: 42)
+                .frame(width: displayStyle == .iconsOnly ? 42 : 192, height: 36)
         .background {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(isSelected ? CamProTheme.accent.opacity(0.22) : Color.white.opacity(0.07))
