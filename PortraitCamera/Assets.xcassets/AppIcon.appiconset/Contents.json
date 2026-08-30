@@ -4,13 +4,7 @@
       "filename" : "CamProIcon-Light-1024.png",
       "idiom" : "universal",
       "platform" : "ios",
-      "size" : "1024x1024",
-      "appearances" : [
-        {
-          "appearance" : "luminosity",
-          "value" : "light"
-        }
-      ]
+      "size" : "1024x1024"
     },
     {
       "filename" : "CamProIcon-Dark-1024.png",
