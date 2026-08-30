@@ -517,6 +517,31 @@ struct ContentView: View {
 
     private var styleControlDetail: some View {
         CameraControlDetail(title: "Style", onClose: { closeActiveControl() }) {
+            Text("STYLE PRESETS")
+                .font(.system(size: 9, weight: .bold, design: .rounded))
+                .foregroundStyle(Color.primary.opacity(0.62))
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(CameraModel.PhotoStylePreset.allCases) { preset in
+                        Button {
+                            camera.applyStylePreset(preset)
+                            scheduleStylePreviewUpdate()
+                        } label: {
+                            Text(preset.rawValue)
+                                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                                .lineLimit(1)
+                                .padding(.horizontal, 9)
+                                .frame(height: 28)
+                                .foregroundStyle(Color.primary)
+                                .background(Color.white.opacity(0.08), in: Capsule())
+                                .overlay(Capsule().stroke(Color.white.opacity(0.16), lineWidth: 0.6))
+                        }
+                        .buttonStyle(CameraPressStyle())
+                    }
+                }
+            }
+
             Group {
                 if let stylePreviewImage {
                     Image(uiImage: stylePreviewImage)
