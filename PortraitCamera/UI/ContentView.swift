@@ -15,6 +15,7 @@ struct ContentView: View {
     @State private var showSettings = false
     @State private var isMenuOpen = false
     @State private var activeMenuItem: CameraMenuItem?
+    @State private var showCaptureFeedback = false
 
     private let previewVerticalOffset: CGFloat = 8
     private let captureControlRowOffset: CGFloat = -8
@@ -105,6 +106,9 @@ struct ContentView: View {
                 permissionCard
             }
         }
+        .overlay {
+            captureFeedbackOverlay
+        }
         .task {
             camera.setFrontCameraMirroring(settings.mirrorFrontCamera)
             camera.start()
@@ -115,6 +119,12 @@ struct ContentView: View {
         .onChange(of: camera.captureMode) { mode in
             withAnimation(.snappy(duration: 0.28, extraBounce: 0)) {
                 displayedCaptureMode = mode
+            }
+        }
+        .onChange(of: camera.successfulCaptureID) { _ in
+            withAnimation(.easeOut(duration: 0.12)) { showCaptureFeedback = true }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.65) {
+                withAnimation(.easeIn(duration: 0.2)) { showCaptureFeedback = false }
             }
         }
         .onAppear {
@@ -197,6 +207,31 @@ struct ContentView: View {
         }
     }
 
+    private var captureFeedbackOverlay: some View {
+        Group {
+            if showCaptureFeedback {
+                ZStack {
+                    Color.white.opacity(0.18)
+                        .ignoresSafeArea()
+                    VStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 42, weight: .semibold))
+                        Text("Saved")
+                            .font(.system(size: 13, weight: .bold, design: .rounded))
+                            .tracking(0.6)
+                    }
+                    .foregroundStyle(Color.white)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 13)
+                    .background(Color.black.opacity(0.28), in: Capsule())
+                    .camProGlass(Capsule())
+                    .transition(.scale(scale: 0.9).combined(with: .opacity))
+                }
+                .allowsHitTesting(false)
+            }
+        }
+    }
+
     private var bottomControlSystem: some View {
         VStack(spacing: 0) {
             lowerControlRow
@@ -212,11 +247,8 @@ struct ContentView: View {
     private var lowerControlRow: some View {
         ZStack(alignment: .bottomTrailing) {
             HStack(spacing: 0) {
-                HStack(spacing: 10) {
-                    latestPhotoButton
-                    zoomButton
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                zoomButton
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 shutterButton
                     .frame(maxWidth: .infinity)
@@ -233,9 +265,8 @@ struct ContentView: View {
 
     private var bottomNavigationRow: some View {
         HStack(spacing: 0) {
-            Color.clear
+            latestPhotoButton
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityHidden(true)
 
             modePicker
                 .frame(maxWidth: .infinity)
@@ -248,7 +279,7 @@ struct ContentView: View {
     }
 
     private var latestPhotoButton: some View {
-        Button(action: openLatestPhoto) {
+        Button(action: camera.openLatestPhotoInPhotos) {
             Group {
                 if let image = camera.latestPhotoImage {
                     Image(uiImage: image)
@@ -260,7 +291,7 @@ struct ContentView: View {
                         .foregroundStyle(Color.white.opacity(0.82))
                 }
             }
-            .frame(width: 48, height: 48)
+            .frame(width: 46, height: 46)
             .background(Color.white.opacity(0.08), in: Circle())
             .camProGlass(Circle())
             .clipShape(Circle())
@@ -270,15 +301,6 @@ struct ContentView: View {
         .disabled(camera.latestPhotoAssetIdentifier == nil)
         .opacity(camera.latestPhotoAssetIdentifier == nil ? 0.55 : 1)
         .accessibilityLabel("Open latest photo in Photos")
-    }
-
-    private func openLatestPhoto() {
-        guard let identifier = camera.latestPhotoAssetIdentifier,
-              let encoded = identifier.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let url = URL(string: "photos-redirect://asset?identifier=\(encoded)") else {
-            return
-        }
-        UIApplication.shared.open(url)
     }
 
     private var zoomButton: some View {
