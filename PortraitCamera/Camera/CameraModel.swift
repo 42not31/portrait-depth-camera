@@ -381,6 +381,10 @@ final class CameraModel: NSObject, ObservableObject {
         case dramatic = "Dramatic"
         case coolContrast = "Cool Contrast"
         case monochrome = "Monochrome"
+        case cinematic = "Cinematic"
+        case vivid = "Vivid"
+        case soft = "Soft"
+        case noir = "Noir"
 
         var id: String { rawValue }
 
