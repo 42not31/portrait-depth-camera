@@ -164,7 +164,12 @@ final class CameraModel: NSObject, ObservableObject {
             self.activeCinematicLensEffect = requestedCinematicEffect
             DispatchQueue.main.async { self.isCapturing = true }
             self.captureSinglePhoto(
-                includePortraitData: requestedMode == .portrait,
+                // Photo mode asks for depth only when a cinematic lens is selected.
+                // If this camera cannot supply depth, capture remains clean and natural.
+                includePortraitData: requestedMode == .portrait
+                    || (requestedMode == .photo
+                        && requestedCinematicEffect != .off
+                        && self.activeCameraPosition == .back),
                 flashMode: requestedFlashMode
             )
         }
@@ -536,7 +541,6 @@ final class CameraModel: NSObject, ObservableObject {
         // input changes between Photo and Portrait. Toggling delivery after a
         // running session has changed inputs can make AVCapturePhotoSettings
         // invalid and crash at capture time on physical devices.
-        guard mode == .portrait else { return }
         if photoOutput.isDepthDataDeliverySupported {
             photoOutput.isDepthDataDeliveryEnabled = true
         }
@@ -743,28 +747,35 @@ final class CameraModel: NSObject, ObservableObject {
         }
     }
 
-    private func applyCinematicLensEffect(_ effect: CinematicLensEffect, to image: CGImage) -> CGImage {
-        guard effect != .off else { return image }
-        var output = CIImage(cgImage: image)
-        if let controls = CIFilter(name: "CIColorControls") {
-            controls.setValue(output, forKey: kCIInputImageKey)
-            controls.setValue(effect == .anamorphic ? 1.08 : 1.02, forKey: kCIInputContrastKey)
-            controls.setValue(effect == .anamorphic ? 0.96 : 0.98, forKey: kCIInputSaturationKey)
-            if let result = controls.outputImage { output = result }
+    private func cinematicDepthEffectImage(
+        from image: CGImage,
+        photo: AVCapturePhoto,
+        effect: CinematicLensEffect
+    ) -> CGImage {
+        guard effect != .off,
+              let depth = photo.depthData,
+              let filter = CIFilter(name: "CIDepthOfField")
+        else {
+            // Do not substitute a colour preset or fake blur when depth is absent.
+            return image
         }
-        if let bloom = CIFilter(name: "CIBloom") {
-            bloom.setValue(output, forKey: kCIInputImageKey)
-            bloom.setValue(effect == .anamorphic ? 6.0 : 3.0, forKey: kCIInputRadiusKey)
-            bloom.setValue(effect == .anamorphic ? 0.16 : 0.08, forKey: kCIInputIntensityKey)
-            if let result = bloom.outputImage { output = result }
-        }
-        if let vignette = CIFilter(name: "CIVignette") {
-            vignette.setValue(output, forKey: kCIInputImageKey)
-            vignette.setValue(effect == .anamorphic ? 1.15 : 0.75, forKey: kCIInputIntensityKey)
-            vignette.setValue(1.2, forKey: kCIInputRadiusKey)
-            if let result = vignette.outputImage { output = result }
-        }
-        return ciContext.createCGImage(output, from: output.extent) ?? image
+
+        let inputImage = CIImage(cgImage: image)
+        let disparityImage = CIImage(cvPixelBuffer: depth.depthDataMap)
+        filter.setValue(inputImage, forKey: kCIInputImageKey)
+        filter.setValue(disparityImage, forKey: "inputDisparityImage")
+        filter.setValue(
+            CIVector(x: inputImage.extent.midX, y: inputImage.extent.midY),
+            forKey: "inputPoint0"
+        )
+        // Anamorphic uses a slightly larger, more pronounced optical falloff.
+        filter.setValue(
+            NSNumber(value: Float(effect == .anamorphic ? 16.0 : 11.0)),
+            forKey: "inputRadius"
+        )
+
+        guard let output = filter.outputImage else { return image }
+        return ciContext.createCGImage(output, from: inputImage.extent) ?? image
     }
 
     private func applyStyleAdjustment(_ adjustment: PhotoStyleAdjustment, to image: CGImage) -> CGImage {
@@ -819,7 +830,12 @@ final class CameraModel: NSObject, ObservableObject {
         aperture: CGFloat,
         styleAdjustment: PhotoStyleAdjustment
     ) -> Data? {
-        guard factor > 1.01 || aspectRatio != .fourThree || includePortraitData || !styleAdjustment.isNeutral else {
+        guard factor > 1.01
+            || aspectRatio != .fourThree
+            || includePortraitData
+            || !styleAdjustment.isNeutral
+            || activeCinematicLensEffect != .off
+        else {
             return photo.fileDataRepresentation()
         }
         guard let primaryImage = photo.cgImageRepresentation() else {
@@ -844,9 +860,16 @@ final class CameraModel: NSObject, ObservableObject {
             cropHeight = sourceAspectRatio / targetAspectRatio
         }
 
-        let processedImage = includePortraitData
-            ? (depthEffectImage(from: primaryImage, photo: photo, aperture: aperture) ?? primaryImage)
-            : primaryImage
+        let processedImage: CGImage
+        if includePortraitData {
+            processedImage = depthEffectImage(from: primaryImage, photo: photo, aperture: aperture) ?? primaryImage
+        } else {
+            processedImage = cinematicDepthEffectImage(
+                from: primaryImage,
+                photo: photo,
+                effect: activeCinematicLensEffect
+            )
+        }
 
         let zoomScale = max(1.0 / factor, 0.05)
         cropWidth *= zoomScale
@@ -871,7 +894,7 @@ final class CameraModel: NSObject, ObservableObject {
                 ? (portraitEnabledFileData(for: photo, aperture: aperture) ?? photo.fileDataRepresentation())
                 : photo.fileDataRepresentation()
         }
-        let styledImage = applyCinematicLensEffect(activeCinematicLensEffect, to: applyStyleAdjustment(activeCaptureStyle, to: croppedImage))
+        let styledImage = applyStyleAdjustment(activeCaptureStyle, to: croppedImage)
 
         var depthAuxiliaryInfo: (CFString, CFDictionary)?
         if includePortraitData, let depth = photo.depthData {
@@ -963,7 +986,7 @@ final class CameraModel: NSObject, ObservableObject {
         guard let croppedImage = primaryImage.cropping(to: cropRect) else {
             return photo.fileDataRepresentation()
         }
-        let styledPortraitImage = applyCinematicLensEffect(activeCinematicLensEffect, to: applyStyleAdjustment(styleAdjustment, to: croppedImage))
+        let styledPortraitImage = applyStyleAdjustment(styleAdjustment, to: croppedImage)
 
         var depthAuxiliaryInfo: (CFString, CFDictionary)?
         if let depth = photo.depthData {
