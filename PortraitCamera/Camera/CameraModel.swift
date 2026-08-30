@@ -373,6 +373,36 @@ final class CameraModel: NSObject, ObservableObject {
         DispatchQueue.main.async { [weak self] in self?.styleAdjustment = .neutral }
     }
 
+    enum PhotoStylePreset: String, CaseIterable, Identifiable {
+        case naturalBright = "Natural Bright"
+        case warmSkin = "Warm Skin"
+        case richColor = "Rich Color"
+        case golden = "Golden"
+        case dramatic = "Dramatic"
+        case coolContrast = "Cool Contrast"
+        case monochrome = "Monochrome"
+
+        var id: String { rawValue }
+
+        var adjustment: PhotoStyleAdjustment {
+            switch self {
+            case .naturalBright: return PhotoStyleAdjustment(tone: 16, color: 4, palette: 52)
+            case .warmSkin: return PhotoStyleAdjustment(tone: 10, color: 24, palette: 58)
+            case .richColor: return PhotoStyleAdjustment(tone: 6, color: 8, palette: 70)
+            case .golden: return PhotoStyleAdjustment(tone: 12, color: 34, palette: 74)
+            case .dramatic: return PhotoStyleAdjustment(tone: -18, color: -6, palette: 60)
+            case .coolContrast: return PhotoStyleAdjustment(tone: -8, color: -30, palette: 40)
+            case .monochrome: return PhotoStyleAdjustment(tone: 0, color: 0, palette: 0)
+            }
+        }
+    }
+
+    func applyStylePreset(_ preset: PhotoStylePreset) {
+        DispatchQueue.main.async { [weak self] in
+            self?.styleAdjustment = preset.adjustment
+        }
+    }
+
     func renderStylePreview(from image: CGImage) -> CGImage {
         applyStyleAdjustment(styleAdjustment, to: image)
     }
