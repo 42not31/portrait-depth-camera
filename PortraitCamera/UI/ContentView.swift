@@ -216,8 +216,11 @@ struct ContentView: View {
     private var lowerControlRow: some View {
         ZStack(alignment: .bottomTrailing) {
             HStack(spacing: 0) {
-                zoomButton
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: 10) {
+                    latestPhotoButton
+                    zoomButton
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 shutterButton
                     .frame(maxWidth: .infinity)
@@ -246,6 +249,40 @@ struct ContentView: View {
         }
         .padding(.horizontal, 20)
         .frame(height: 58)
+    }
+
+    private var latestPhotoButton: some View {
+        Button(action: openLatestPhoto) {
+            Group {
+                if let image = camera.latestPhotoImage {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    Image(systemName: "photo")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(Color.white.opacity(0.82))
+                }
+            }
+            .frame(width: 48, height: 48)
+            .background(Color.white.opacity(0.08), in: Circle())
+            .camProGlass(Circle())
+            .clipShape(Circle())
+            .overlay(Circle().stroke(Color.white.opacity(0.22), lineWidth: 0.8))
+        }
+        .buttonStyle(CameraPressStyle())
+        .disabled(camera.latestPhotoAssetIdentifier == nil)
+        .opacity(camera.latestPhotoAssetIdentifier == nil ? 0.55 : 1)
+        .accessibilityLabel("Open latest photo in Photos")
+    }
+
+    private func openLatestPhoto() {
+        guard let identifier = camera.latestPhotoAssetIdentifier,
+              let encoded = identifier.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let url = URL(string: "photos-redirect://asset?identifier=\(encoded)") else {
+            return
+        }
+        UIApplication.shared.open(url)
     }
 
     private var zoomButton: some View {
@@ -554,7 +591,6 @@ struct ContentView: View {
                     ForEach(CameraModel.PhotoStylePreset.allCases) { preset in
                         Button {
                             camera.applyStylePreset(preset)
-                            scheduleStylePreviewUpdate()
                         } label: {
                             Text(preset.rawValue)
                                 .font(.system(size: 10, weight: .semibold, design: .rounded))
@@ -570,27 +606,17 @@ struct ContentView: View {
                 }
             }
 
-            Group {
-                if let stylePreviewImage {
-                    Image(uiImage: stylePreviewImage)
-                        .resizable()
-                        .scaledToFill()
-                } else {
-                    Color.black.opacity(0.2)
-                }
-            }
-            .frame(height: 80)
-            .frame(maxWidth: .infinity)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-
             HStack {
-                Text("TONE \(Int(camera.styleAdjustment.tone))")
+                Text("TONE")
                 Spacer()
-                Text("COLOUR \(Int(camera.styleAdjustment.color))")
+                Text("(Int(camera.styleAdjustment.tone))")
+                    .monospacedDigit()
+                Text("WARMTH")
                 Spacer()
+                Text("(Int(camera.styleAdjustment.color))")
+                    .monospacedDigit()
                 Button {
                     camera.resetStyleAdjustment()
-                    scheduleStylePreviewUpdate()
                 } label: {
                     Image(systemName: "arrow.counterclockwise")
                         .font(.system(size: 10, weight: .bold))
@@ -604,24 +630,29 @@ struct ContentView: View {
             StyleGridPad(
                 tone: Binding(
                     get: { camera.styleAdjustment.tone },
-                    set: { camera.setStyleAdjustment(tone: $0); scheduleStylePreviewUpdate() }
+                    set: { camera.setStyleAdjustment(tone: $0) }
                 ),
                 color: Binding(
                     get: { camera.styleAdjustment.color },
-                    set: { camera.setStyleAdjustment(color: $0); scheduleStylePreviewUpdate() }
+                    set: { camera.setStyleAdjustment(color: $0) }
                 )
             )
-            .frame(height: 130)
+            .frame(height: 108)
             .frame(maxWidth: .infinity)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("PALETTE \(Int(camera.styleAdjustment.palette))")
-                    .font(.system(size: 9, weight: .bold, design: .rounded))
-                    .foregroundStyle(Color.primary.opacity(0.62))
+                HStack {
+                    Text("INTENSITY")
+                    Spacer()
+                    Text("(Int(camera.styleAdjustment.palette))")
+                        .monospacedDigit()
+                }
+                .font(.system(size: 9, weight: .bold, design: .rounded))
+                .foregroundStyle(Color.primary.opacity(0.62))
                 Slider(
                     value: Binding(
                         get: { camera.styleAdjustment.palette },
-                        set: { camera.setStyleAdjustment(palette: $0); scheduleStylePreviewUpdate() }
+                        set: { camera.setStyleAdjustment(palette: $0) }
                     ),
                     in: 0...100
                 )
