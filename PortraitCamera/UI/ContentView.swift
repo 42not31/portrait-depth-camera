@@ -432,7 +432,7 @@ struct ContentView: View {
         return CameraControlDetail(title: isUltraWide ? "Ultra Wide Zoom" : "Zoom", onClose: { closeActiveControl() }) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 7) {
-                    ForEach(bounds, id: \\.self) { preset in
+                    ForEach(bounds, id: \.self) { preset in
                         Button {
                             withAnimation(.easeOut(duration: 0.16)) {
                                 camera.setZoomFactor(preset)
