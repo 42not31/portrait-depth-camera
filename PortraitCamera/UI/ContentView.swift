@@ -15,9 +15,6 @@ struct ContentView: View {
     @State private var showSettings = false
     @State private var isMenuOpen = false
     @State private var activeMenuItem: CameraMenuItem?
-    @State private var previewViewRef: PreviewView?
-    @State private var stylePreviewImage: UIImage?
-    @State private var stylePreviewTask: Task<Void, Never>?
 
     private let previewVerticalOffset: CGFloat = 8
     private let captureControlRowOffset: CGFloat = -8
@@ -173,7 +170,6 @@ struct ContentView: View {
                     onZoomChanged: { factor in
                         camera.setZoomFactor(factor)
                     },
-                    onViewReady: { previewViewRef = $0 }
                 )
                 .frame(width: proxy.size.width, height: previewHeight)
                 .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
@@ -760,22 +756,6 @@ struct ContentView: View {
                 isMenuOpen = false
                 activeMenuItem = .style
             }
-            updateStylePreview()
-        }
-    }
-
-    private func updateStylePreview() {
-        guard let rawImage = previewViewRef?.snapshotImage(), let cgImage = rawImage.cgImage else { return }
-        let processed = camera.renderStylePreview(from: cgImage)
-        stylePreviewImage = UIImage(cgImage: processed)
-    }
-
-    private func scheduleStylePreviewUpdate() {
-        stylePreviewTask?.cancel()
-        stylePreviewTask = Task {
-            try? await Task.sleep(nanoseconds: 120_000_000)
-            guard !Task.isCancelled else { return }
-            updateStylePreview()
         }
     }
 
