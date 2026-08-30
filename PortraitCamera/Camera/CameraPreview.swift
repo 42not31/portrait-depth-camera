@@ -9,6 +9,7 @@ struct CameraPreview: UIViewRepresentable {
     let videoOrientation: AVCaptureVideoOrientation
     let isMirrored: Bool
     let onTap: (CGPoint, CGPoint) -> Void
+    var onZoomChanged: ((CGFloat) -> Void)? = nil
     var onViewReady: ((PreviewView) -> Void)? = nil
 
     func makeUIView(context: Context) -> PreviewView {
@@ -18,7 +19,8 @@ struct CameraPreview: UIViewRepresentable {
             onTap: onTap,
             orientation: videoOrientation,
             isMirrored: isMirrored,
-            digitalZoom: max(1.0, zoomFactor / max(deviceZoomFactor, 1.0))
+            digitalZoom: max(1.0, zoomFactor / max(deviceZoomFactor, 1.0)),
+            onZoomChanged: onZoomChanged
         )
         onViewReady?(view)
         return view
@@ -43,6 +45,7 @@ final class PreviewView: UIView {
     private var lastDigitalZoom: CGFloat = 1.0
     private var lastOrientation: AVCaptureVideoOrientation?
     private var lastMirroring: Bool?
+    private var pinchStartZoom: CGFloat = 1.0
 
     var onTap: ((CGPoint, CGPoint) -> Void)?
 
@@ -68,6 +71,8 @@ final class PreviewView: UIView {
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
         addGestureRecognizer(tap)
+        let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
+        addGestureRecognizer(pinch)
     }
 
     func apply(
@@ -75,12 +80,14 @@ final class PreviewView: UIView {
         onTap: @escaping (CGPoint, CGPoint) -> Void,
         orientation: AVCaptureVideoOrientation,
         isMirrored: Bool,
-        digitalZoom: CGFloat
+        digitalZoom: CGFloat,
+        onZoomChanged: ((CGFloat) -> Void)? = nil
     ) {
         if previewLayer.session !== session {
             previewLayer.session = session
         }
         self.onTap = onTap
+        self.onZoomChanged = onZoomChanged
         setVideoOrientation(orientation)
         setVideoMirroring(isMirrored)
         setDigitalZoom(digitalZoom)
@@ -127,6 +134,16 @@ final class PreviewView: UIView {
         previewLayer.setAffineTransform(CGAffineTransform(scaleX: clamped, y: clamped))
         previewLayer.position = CGPoint(x: bounds.midX, y: bounds.midY)
         CATransaction.commit()
+    }
+
+    @objc private func handlePinch(_ gesture: UIPinchGestureRecognizer) {
+        if gesture.state == .began {
+            pinchStartZoom = lastDigitalZoom
+        }
+        guard gesture.state == .began || gesture.state == .changed else { return }
+        let desired = min(max(pinchStartZoom * gesture.scale, 1.0), 5.0)
+        setDigitalZoom(desired)
+        onZoomChanged?(desired)
     }
 
     @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
