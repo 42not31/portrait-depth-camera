@@ -6,15 +6,27 @@
       "platform" : "ios",
       "size" : "1024x1024",
       "appearances" : [
-        { "appearance" : "luminosity", "value" : "Light" }
+        {
+          "appearance" : "luminosity",
+          "value" : "light"
+        }
       ]
     },
     {
       "filename" : "CamProIcon-Dark-1024.png",
       "idiom" : "universal",
       "platform" : "ios",
-      "size" : "1024x1024"
+      "size" : "1024x1024",
+      "appearances" : [
+        {
+          "appearance" : "luminosity",
+          "value" : "dark"
+        }
+      ]
     }
   ],
-  "info" : { "author" : "xcode", "version" : 1 }
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
 }
