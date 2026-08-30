@@ -170,6 +170,9 @@ struct ContentView: View {
                         focusPoint = viewPoint
                         focusAnimationID = UUID()
                     },
+                    onZoomChanged: { factor in
+                        camera.setZoomFactor(factor)
+                    },
                     onViewReady: { previewViewRef = $0 }
                 )
                 .frame(width: proxy.size.width, height: previewHeight)
@@ -427,6 +430,31 @@ struct ContentView: View {
         let isUltraWide = !camera.isUsingFrontCamera && camera.captureMode == .photo && camera.photoLens == .ultraWide
 
         return CameraControlDetail(title: isUltraWide ? "Ultra Wide Zoom" : "Zoom", onClose: { closeActiveControl() }) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 7) {
+                    ForEach(bounds, id: \\.self) { preset in
+                        Button {
+                            withAnimation(.easeOut(duration: 0.16)) {
+                                camera.setZoomFactor(preset)
+                            }
+                        } label: {
+                            Text(formattedZoom(preset))
+                                .font(.system(size: 11, weight: .bold, design: .rounded))
+                                .monospacedDigit()
+                                .frame(minWidth: 42, minHeight: 30)
+                                .foregroundStyle(abs(camera.zoomFactor - preset) < 0.05 ? Color.white : Color.primary)
+                                .background(
+                                    abs(camera.zoomFactor - preset) < 0.05
+                                        ? CamProTheme.accent.opacity(0.85)
+                                        : Color.white.opacity(0.08),
+                                    in: Capsule()
+                                )
+                        }
+                        .buttonStyle(CameraPressStyle())
+                    }
+                }
+            }
+
             HStack(spacing: 9) {
                 Text(formattedZoom(minZoom))
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
@@ -642,7 +670,7 @@ struct ContentView: View {
         case .focus:
             return isFocusSupported ? (camera.manualControlsEnabled ? "LOCK" : "AUTO") : "1× only"
         case .zoom:
-            return String(format: "%.1f×", camera.zoomFactor * 0.5)
+            return zoomTitle
         case .lens:
             return camera.photoLens.title
         case .aspectRatio:
