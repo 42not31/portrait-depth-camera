@@ -6,6 +6,14 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
+enum CinematicLensEffect: String, CaseIterable, Identifiable {
+    case off = "Off"
+    case cinematic = "Cinematic"
+    case anamorphic = "Anamorphic"
+
+    var id: String { rawValue }
+}
+
 struct PhotoStyleAdjustment: Equatable {
     var tone: Double = 0       // -100...100, shadow/highlight balance
     var color: Double = 0      // -100...100, warm/cool tint
@@ -43,6 +51,7 @@ final class CameraModel: NSObject, ObservableObject {
     @Published var statusMessage: String?
     @Published private(set) var portraitAperture: CGFloat = 2.8
     @Published private(set) var styleAdjustment = PhotoStyleAdjustment()
+    @Published private(set) var cinematicLensEffect: CinematicLensEffect = .off
 
     private let sessionQueue = DispatchQueue(label: "com.privateportrait.camera.session")
     private let photoOutput = AVCapturePhotoOutput()
@@ -58,6 +67,7 @@ final class CameraModel: NSObject, ObservableObject {
     private var activeCaptureFlashMode: PhotoFlashMode = .off
     private var activeCaptureAperture: CGFloat = 2.8
     private var activeCaptureStyle = PhotoStyleAdjustment()
+    private var activeCinematicLensEffect: CinematicLensEffect = .off
     private var activeVideoOrientation: AVCaptureVideoOrientation = .portrait
     private var activeCameraPosition: AVCaptureDevice.Position = .back
     private var mirrorFrontCamera = true
@@ -128,6 +138,7 @@ final class CameraModel: NSObject, ObservableObject {
         let requestedFlashMode = photoFlashMode
         let requestedDepthAperture: CGFloat = portraitAperture
         let requestedStyle: PhotoStyleAdjustment = styleAdjustment
+        let requestedCinematicEffect = cinematicLensEffect
 
         sessionQueue.async { [weak self] in
             guard let self else { return }
@@ -149,6 +160,7 @@ final class CameraModel: NSObject, ObservableObject {
             self.activeCaptureFlashMode = requestedFlashMode
             self.activeCaptureAperture = requestedDepthAperture
             self.activeCaptureStyle = requestedStyle
+            self.activeCinematicLensEffect = requestedCinematicEffect
             DispatchQueue.main.async { self.isCapturing = true }
             self.captureSinglePhoto(
                 includePortraitData: requestedMode == .portrait,
@@ -359,6 +371,10 @@ final class CameraModel: NSObject, ObservableObject {
                 DispatchQueue.main.async { self.statusMessage = "Manual exposure is unavailable" }
             }
         }
+    }
+
+    func setCinematicLensEffect(_ effect: CinematicLensEffect) {
+        DispatchQueue.main.async { [weak self] in self?.cinematicLensEffect = effect }
     }
 
     func setStyleAdjustment(tone: Double? = nil, color: Double? = nil, palette: Double? = nil) {
@@ -728,6 +744,30 @@ final class CameraModel: NSObject, ObservableObject {
         }
     }
 
+    private func applyCinematicLensEffect(_ effect: CinematicLensEffect, to image: CGImage) -> CGImage {
+        guard effect != .off else { return image }
+        var output = CIImage(cgImage: image)
+        if let controls = CIFilter(name: "CIColorControls") {
+            controls.setValue(output, forKey: kCIInputImageKey)
+            controls.setValue(effect == .anamorphic ? 1.08 : 1.02, forKey: kCIInputContrastKey)
+            controls.setValue(effect == .anamorphic ? 0.96 : 0.98, forKey: kCIInputSaturationKey)
+            if let result = controls.outputImage { output = result }
+        }
+        if let bloom = CIFilter(name: "CIBloom") {
+            bloom.setValue(output, forKey: kCIInputImageKey)
+            bloom.setValue(effect == .anamorphic ? 6.0 : 3.0, forKey: kCIInputRadiusKey)
+            bloom.setValue(effect == .anamorphic ? 0.16 : 0.08, forKey: kCIInputIntensityKey)
+            if let result = bloom.outputImage { output = result }
+        }
+        if let vignette = CIFilter(name: "CIVignette") {
+            vignette.setValue(output, forKey: kCIInputImageKey)
+            vignette.setValue(effect == .anamorphic ? 1.15 : 0.75, forKey: kCIInputIntensityKey)
+            vignette.setValue(1.2, forKey: kCIInputRadiusKey)
+            if let result = vignette.outputImage { output = result }
+        }
+        return ciContext.createCGImage(output, from: output.extent) ?? image
+    }
+
     private func applyStyleAdjustment(_ adjustment: PhotoStyleAdjustment, to image: CGImage) -> CGImage {
         guard !adjustment.isNeutral else { return image }
         var output = CIImage(cgImage: image)
@@ -832,7 +872,7 @@ final class CameraModel: NSObject, ObservableObject {
                 ? (portraitEnabledFileData(for: photo, aperture: aperture) ?? photo.fileDataRepresentation())
                 : photo.fileDataRepresentation()
         }
-        let styledImage = applyStyleAdjustment(styleAdjustment, to: croppedImage)
+        let styledImage = applyCinematicLensEffect(activeCinematicLensEffect, to: applyStyleAdjustment(activeCaptureStyle, to: croppedImage))
 
         var depthAuxiliaryInfo: (CFString, CFDictionary)?
         if includePortraitData, let depth = photo.depthData {
@@ -924,7 +964,7 @@ final class CameraModel: NSObject, ObservableObject {
         guard let croppedImage = primaryImage.cropping(to: cropRect) else {
             return photo.fileDataRepresentation()
         }
-        let styledPortraitImage = applyStyleAdjustment(styleAdjustment, to: croppedImage)
+        let styledPortraitImage = applyCinematicLensEffect(activeCinematicLensEffect, to: applyStyleAdjustment(styleAdjustment, to: croppedImage))
 
         var depthAuxiliaryInfo: (CFString, CFDictionary)?
         if let depth = photo.depthData {
