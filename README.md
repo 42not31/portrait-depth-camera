@@ -21,3 +21,9 @@ The iPhone 13 has no rear telephoto lens. The 2× and 3× choices therefore use 
 ## Required permissions
 
 The app requests camera access and add-only Photos access. It does not request read access to the photo library in version 1.
+
+## New style presets
+
+The camera now includes named, adjustable style presets inspired by newer-generation iPhone looks: Natural Bright, Warm Skin, Rich Color, Golden, Dramatic, Cool Contrast, and Monochrome. Each preset can be fine-tuned with the existing tone, colour, and palette controls before capture.
+
+These are app-created styles, not Apple’s private native Photographic Styles metadata. They are applied to the saved image by the app while the original camera/depth representation remains the fallback when the adjustment is neutral. The app does not claim the photo was captured by an iPhone 16 or iPhone 17.
