@@ -44,6 +44,7 @@ final class CameraModel: NSObject, ObservableObject {
     @Published private(set) var videoOrientation: AVCaptureVideoOrientation = .portrait
     @Published private(set) var latestPhotoImage: UIImage?
     @Published private(set) var latestPhotoAssetIdentifier: String?
+    @Published private(set) var successfulCaptureID = UUID()
     @Published private(set) var depthCaptureAvailable = false
     @Published private(set) var portraitMatteAvailable = false
     @Published private(set) var isUsingFrontCamera = false
@@ -427,9 +428,6 @@ final class CameraModel: NSObject, ObservableObject {
         }
     }
 
-    func renderStylePreview(from image: CGImage) -> CGImage {
-        applyStyleAdjustment(styleAdjustment, to: image)
-    }
 
     func setPortraitAperture(_ aperture: CGFloat) {
         let clamped = min(max(aperture, 1.4), 16.0)
@@ -673,6 +671,7 @@ final class CameraModel: NSObject, ObservableObject {
                     if success {
                         self.latestPhotoImage = latestThumbnail
                         self.latestPhotoAssetIdentifier = placeholderIdentifier
+                        self.successfulCaptureID = UUID()
                         self.statusMessage = nil
                     } else {
                         self.statusMessage = error?.localizedDescription ?? "Could not save photo"
@@ -709,7 +708,7 @@ final class CameraModel: NSObject, ObservableObject {
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: 320
+            kCGImageSourceThumbnailMaxPixelSize: 200
         ]
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
