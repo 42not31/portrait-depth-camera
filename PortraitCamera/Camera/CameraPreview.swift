@@ -35,7 +35,8 @@ struct CameraPreview: UIViewRepresentable {
             onTap: onTap,
             orientation: videoOrientation,
             isMirrored: isMirrored,
-            digitalZoom: max(1.0, zoomFactor / max(deviceZoomFactor, 1.0))
+            digitalZoom: max(1.0, zoomFactor / max(deviceZoomFactor, 1.0)),
+            onZoomChanged: onZoomChanged
         )
     }
 }
