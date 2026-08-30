@@ -49,6 +49,7 @@ final class PreviewView: UIView {
     private var pinchStartZoom: CGFloat = 1.0
 
     var onTap: ((CGPoint, CGPoint) -> Void)?
+    var onZoomChanged: ((CGFloat) -> Void)?
 
     var videoPreviewLayer: AVCaptureVideoPreviewLayer {
         previewLayer
