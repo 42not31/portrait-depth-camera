@@ -642,7 +642,7 @@ struct ContentView: View {
                 HStack {
                     Text("INTENSITY")
                     Spacer()
-                    Text("(Int(camera.styleAdjustment.palette))")
+                    Text("\(Int(camera.styleAdjustment.palette))")
                         .monospacedDigit()
                 }
                 .font(.system(size: 9, weight: .bold, design: .rounded))
