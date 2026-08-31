@@ -1335,9 +1335,9 @@ final class CameraModel: NSObject, ObservableObject {
     ) -> [(CFString, CFDictionary)] {
         guard includeSemanticMattes else { return [] }
         return photoOutput.enabledSemanticSegmentationMatteTypes.compactMap { matteType in
-            guard let matte = photo.semanticSegmentationMatte(for: matteType),
-                  var auxiliaryType: NSString?,
-                  let originalInfo = matte.dictionaryRepresentation(forAuxiliaryDataType: &auxiliaryType),
+            guard let matte = photo.semanticSegmentationMatte(for: matteType) else { return nil }
+            var auxiliaryType: NSString?
+            guard let originalInfo = matte.dictionaryRepresentation(forAuxiliaryDataType: &auxiliaryType),
                   let auxiliaryType else { return nil }
 
             if let normalizedRect,
