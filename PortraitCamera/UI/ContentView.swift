@@ -261,6 +261,14 @@ struct ContentView: View {
             .padding(.horizontal, 20)
             .frame(height: 112)
 
+            // Keep the detail card outside the menu button's hit area so the
+            // Tone / Colour pad receives the complete two-dimensional drag.
+            if activeMenuItem != nil && activeMenuItem != .zoom && !isMenuOpen {
+                activeControlDetail
+                    .offset(y: -62)
+                    .transition(.scale(scale: 0.95, anchor: .bottomTrailing).combined(with: .opacity))
+            }
+
         }
         .frame(maxWidth: .infinity, minHeight: 112)
     }
@@ -369,10 +377,6 @@ struct ContentView: View {
                 controlMenu
                     .offset(y: -62)
                     .transition(.scale(scale: 0.94, anchor: .bottomTrailing).combined(with: .opacity))
-            } else if activeMenuItem != nil && activeMenuItem != .zoom {
-                activeControlDetail
-                    .offset(y: -62)
-                    .transition(.scale(scale: 0.95, anchor: .bottomTrailing).combined(with: .opacity))
             }
         }
         .animation(.snappy(duration: 0.24, extraBounce: 0), value: isMenuOpen)
@@ -1095,7 +1099,7 @@ private struct StyleGridPad: View {
                     )
             }
             .contentShape(Rectangle())
-            .gesture(
+            .highPriorityGesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
                         let clampedX = min(max(value.location.x, 0), size.width)
@@ -1125,23 +1129,30 @@ private struct PhotoStylePresetPicker: View {
                         // A direct tap always chooses this exact style.
                         select(preset)
                     } label: {
-                        HStack(spacing: 4) {
-                            Text(preset.rawValue)
-                            if isSelected {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .font(.system(size: 10, weight: .bold))
-                            }
+                        VStack(spacing: 4) {
+                            Image(systemName: preset.compactSymbol)
+                                .font(.system(size: 15, weight: .medium))
+                            Text(preset.compactTitle)
+                                .font(.system(size: 9, weight: .bold, design: .rounded))
+                                .lineLimit(1)
                         }
-                        .font(.system(size: 10, weight: .semibold, design: .rounded))
-                        .lineLimit(1)
-                        .padding(.horizontal, 10)
-                        .frame(height: 30)
+                        .frame(width: 54, height: 54)
                         .foregroundStyle(isSelected ? Color.white : Color.primary)
                         .background(
                             isSelected ? CamProTheme.accent.opacity(0.78) : Color.white.opacity(0.09),
-                            in: Capsule()
+                            in: RoundedRectangle(cornerRadius: 15, style: .continuous)
                         )
-                        .overlay(Capsule().stroke(Color.white.opacity(isSelected ? 0.42 : 0.18), lineWidth: 0.7))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 15, style: .continuous)
+                                .stroke(Color.white.opacity(isSelected ? 0.42 : 0.18), lineWidth: 0.7)
+                        }
+                        .overlay(alignment: .topTrailing) {
+                            if isSelected {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .padding(5)
+                            }
+                        }
                     }
                     .buttonStyle(CameraPressStyle())
                     .accessibilityAddTraits(isSelected ? .isSelected : [])
@@ -1168,6 +1179,40 @@ private struct PhotoStylePresetPicker: View {
         let currentIndex = selectedStyle.flatMap { presets.firstIndex(of: $0) } ?? 0
         let nextIndex = (currentIndex + offset + presets.count) % presets.count
         select(presets[nextIndex])
+    }
+}
+
+private extension CameraModel.PhotoStylePreset {
+    var compactTitle: String {
+        switch self {
+        case .naturalBright: return "Natural"
+        case .warmSkin: return "Warm"
+        case .richColor: return "Rich"
+        case .golden: return "Golden"
+        case .dramatic: return "Drama"
+        case .coolContrast: return "Cool"
+        case .monochrome: return "Mono"
+        case .cinematic: return "Cinema"
+        case .vivid: return "Vivid"
+        case .soft: return "Soft"
+        case .noir: return "Noir"
+        }
+    }
+
+    var compactSymbol: String {
+        switch self {
+        case .naturalBright: return "sun.max"
+        case .warmSkin: return "sun.haze"
+        case .richColor: return "paintpalette"
+        case .golden: return "sparkles"
+        case .dramatic: return "circle.lefthalf.filled"
+        case .coolContrast: return "snowflake"
+        case .monochrome: return "circle.lefthalf.filled.inverse"
+        case .cinematic: return "film"
+        case .vivid: return "wand.and.stars"
+        case .soft: return "cloud"
+        case .noir: return "moon.stars"
+        }
     }
 }
 
@@ -1232,7 +1277,7 @@ private struct PaletteSlider: View {
             }
             .frame(height: proxy.size.height)
             .contentShape(Rectangle())
-            .gesture(
+            .highPriorityGesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { gesture in
                         value = min(max(Double((gesture.location.x - handleSize / 2) / travel) * 100, 0), 100)

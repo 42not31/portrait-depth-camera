@@ -422,10 +422,11 @@ final class CameraModel: NSObject, ObservableObject {
         if let tone { updated.tone = min(max(tone, -100), 100) }
         if let color { updated.color = min(max(color, -100), 100) }
         if let palette { updated.palette = min(max(palette, 0), 100) }
-        DispatchQueue.main.async { [weak self] in
+        let apply = { [weak self] in
             self?.styleAdjustment = updated
             self?.selectedPhotoStyle = nil
         }
+        if Thread.isMainThread { apply() } else { DispatchQueue.main.async(execute: apply) }
     }
 
     func resetStyleAdjustment() {
@@ -802,7 +803,7 @@ final class CameraModel: NSObject, ObservableObject {
         }
 
         let inputImage = CIImage(cgImage: image)
-        let disparityImage = CIImage(cvPixelBuffer: depth.depthDataMap)
+        let disparityImage = depthImage(matching: inputImage, from: depth.depthDataMap)
         filter.setValue(inputImage, forKey: kCIInputImageKey)
         filter.setValue(disparityImage, forKey: "inputDisparityImage")
         filter.setValue(
@@ -993,8 +994,13 @@ final class CameraModel: NSObject, ObservableObject {
         return croppedData
     }
 
-    private func croppedPortraitFileData(for photo: AVCapturePhoto, factor: CGFloat, styleAdjustment: PhotoStyleAdjustment) -> Data? {
-        guard factor > 1.01 || !styleAdjustment.isNeutral else {
+    private func croppedPortraitFileData(
+        for photo: AVCapturePhoto,
+        factor: CGFloat,
+        styleAdjustment: PhotoStyleAdjustment,
+        cinematicLensEffect: CinematicLensEffect
+    ) -> Data? {
+        guard factor > 1.01 || !styleAdjustment.isNeutral || cinematicLensEffect != .off else {
             return photo.fileDataRepresentation()
         }
 
@@ -1031,7 +1037,10 @@ final class CameraModel: NSObject, ObservableObject {
         guard let croppedImage = primaryImage.cropping(to: cropRect) else {
             return photo.fileDataRepresentation()
         }
-        let styledPortraitImage = applyStyleAdjustment(styleAdjustment, to: croppedImage)
+        let depthProcessedImage = cinematicLensEffect == .off
+            ? croppedImage
+            : cinematicDepthEffectImage(from: croppedImage, photo: photo, effect: cinematicLensEffect)
+        let styledPortraitImage = applyStyleAdjustment(styleAdjustment, to: depthProcessedImage)
 
         var depthAuxiliaryInfo: (CFString, CFDictionary)?
         if let depth = photo.depthData {
@@ -1082,7 +1091,7 @@ final class CameraModel: NSObject, ObservableObject {
         guard aperture < 15.95, let depth = photo.depthData else { return nil }
         guard let filter = CIFilter(name: "CIDepthOfField") else { return nil }
         let inputImage = CIImage(cgImage: image)
-        let disparityImage = CIImage(cvPixelBuffer: depth.depthDataMap)
+        let disparityImage = depthImage(matching: inputImage, from: depth.depthDataMap)
         let normalizedStrength = max(0, min(1, (16.0 - aperture) / 14.6))
         filter.setValue(inputImage, forKey: kCIInputImageKey)
         filter.setValue(disparityImage, forKey: "inputDisparityImage")
@@ -1090,6 +1099,16 @@ final class CameraModel: NSObject, ObservableObject {
         filter.setValue(NSNumber(value: Float(normalizedStrength * 18.0)), forKey: "inputRadius")
         guard let output = filter.outputImage else { return nil }
         return ciContext.createCGImage(output, from: inputImage.extent)
+    }
+
+    private func depthImage(matching image: CIImage, from pixelBuffer: CVPixelBuffer) -> CIImage {
+        let source = CIImage(cvPixelBuffer: pixelBuffer)
+        guard source.extent.width > 0, source.extent.height > 0 else { return source }
+        let scaleX = image.extent.width / source.extent.width
+        let scaleY = image.extent.height / source.extent.height
+        return source
+            .transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
+            .cropped(to: image.extent)
     }
 
     private func portraitEnabledFileData(for photo: AVCapturePhoto, aperture: CGFloat) -> Data? {
@@ -1326,7 +1345,12 @@ extension CameraModel: AVCapturePhotoCaptureDelegate {
             // Crop to the selected zoom factor while preserving embedded
             // depth/matte data for Photos. At 1x this returns the native
             // AVFoundation representation unchanged (no crop needed).
-            guard let data = croppedPortraitFileData(for: photo, factor: zoom, styleAdjustment: activeCaptureStyle) else {
+            guard let data = croppedPortraitFileData(
+                for: photo,
+                factor: zoom,
+                styleAdjustment: activeCaptureStyle,
+                cinematicLensEffect: activeCinematicLensEffect
+            ) else {
                 finishCapture(with: "Could not create the Portrait photo file")
                 return
             }
