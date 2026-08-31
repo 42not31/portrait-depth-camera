@@ -65,10 +65,10 @@ struct ContentView: View {
         if camera.isUsingFrontCamera {
             return camera.captureMode == .photo
                 ? [.aspectRatio, .flash, .exposure, .style, .settings]
-                : [.flash, .exposure, .style, .cinematic, .settings]
+                : [.flash, .exposure, .style, .settings]
         }
         guard camera.captureMode == .photo else {
-            return [.zoom, .flash, .exposure, .style, .cinematic, .settings]
+            return [.zoom, .flash, .exposure, .style, .settings]
         }
         var items: [CameraMenuItem] = []
         if isFocusSupported {
@@ -141,7 +141,7 @@ struct ContentView: View {
             camera.stop()
         }
         .sheet(isPresented: $showSettings) {
-            SettingsView(settings: settings)
+            SettingsView(camera: camera, settings: settings)
         }
     }
 

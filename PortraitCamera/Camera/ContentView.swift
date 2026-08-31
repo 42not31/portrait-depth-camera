@@ -62,7 +62,7 @@ struct ContentView: View {
             camera.stop()
         }
         .sheet(isPresented: $showSettings) {
-            SettingsView(settings: settings)
+            SettingsView(camera: camera, settings: settings)
         }
     }
 

@@ -111,6 +111,18 @@ final class CamProSettings: ObservableObject {
     @Published var menuDisplayStyle: MenuDisplayStyle {
         didSet { defaults.set(menuDisplayStyle.rawValue, forKey: Keys.menuDisplayStyle) }
     }
+    @Published var includeApplePhotoMetadata: Bool {
+        didSet { defaults.set(includeApplePhotoMetadata, forKey: Keys.includeApplePhotoMetadata) }
+    }
+    @Published var includeSemanticMattes: Bool {
+        didSet { defaults.set(includeSemanticMattes, forKey: Keys.includeSemanticMattes) }
+    }
+    @Published var includeDepthData: Bool {
+        didSet { defaults.set(includeDepthData, forKey: Keys.includeDepthData) }
+    }
+    @Published var includePortraitMatte: Bool {
+        didSet { defaults.set(includePortraitMatte, forKey: Keys.includePortraitMatte) }
+    }
 
     private let defaults: UserDefaults
 
@@ -123,6 +135,10 @@ final class CamProSettings: ObservableObject {
         self.menuDisplayStyle = MenuDisplayStyle(
             rawValue: defaults.string(forKey: Keys.menuDisplayStyle) ?? MenuDisplayStyle.iconsAndText.rawValue
         ) ?? .iconsAndText
+        self.includeApplePhotoMetadata = defaults.object(forKey: Keys.includeApplePhotoMetadata) as? Bool ?? true
+        self.includeSemanticMattes = defaults.object(forKey: Keys.includeSemanticMattes) as? Bool ?? true
+        self.includeDepthData = defaults.object(forKey: Keys.includeDepthData) as? Bool ?? true
+        self.includePortraitMatte = defaults.object(forKey: Keys.includePortraitMatte) as? Bool ?? true
     }
 
     private enum Keys {
@@ -131,5 +147,9 @@ final class CamProSettings: ObservableObject {
         static let showFocusReticle = "campro.showFocusReticle"
         static let keepScreenAwake = "campro.keepScreenAwake"
         static let menuDisplayStyle = "campro.menuDisplayStyle"
+        static let includeApplePhotoMetadata = "campro.includeApplePhotoMetadata"
+        static let includeSemanticMattes = "campro.includeSemanticMattes"
+        static let includeDepthData = "campro.includeDepthData"
+        static let includePortraitMatte = "campro.includePortraitMatte"
     }
 }

@@ -1,8 +1,31 @@
+
 import SwiftUI
 
 struct SettingsView: View {
+    @ObservedObject var camera: CameraModel
     @ObservedObject var settings: CamProSettings
     @Environment(\.dismiss) private var dismiss
+
+    private var toneBinding: Binding<Double> {
+        Binding(
+            get: { camera.styleAdjustment.tone },
+            set: { camera.setStyleAdjustment(tone: $0) }
+        )
+    }
+
+    private var colorBinding: Binding<Double> {
+        Binding(
+            get: { camera.styleAdjustment.color },
+            set: { camera.setStyleAdjustment(color: $0) }
+        )
+    }
+
+    private var paletteBinding: Binding<Double> {
+        Binding(
+            get: { camera.styleAdjustment.palette },
+            set: { camera.setStyleAdjustment(palette: $0) }
+        )
+    }
 
     var body: some View {
         NavigationStack {
@@ -14,8 +37,39 @@ struct SettingsView: View {
                     Toggle("Keep screen awake while open", isOn: $settings.keepScreenAwake)
                 } header: {
                     Text("CAMERA")
+                }
+
+                Section {
+                    Toggle("Apple photo metadata", isOn: $settings.includeApplePhotoMetadata)
+                    Toggle("Depth data", isOn: $settings.includeDepthData)
+                    Toggle("Portrait effects matte", isOn: $settings.includePortraitMatte)
+                    Toggle("Semantic mattes", isOn: $settings.includeSemanticMattes)
+                } header: {
+                    Text("APPLE PHOTO DATA")
                 } footer: {
-                    Text("These options are stored on this device. Camera processing pauses in the background to reduce heat and battery use.")
+                    Text("These options add supported depth, portrait, and semantic layers to HEIF photos when the camera provides them.")
+                }
+
+                Section {
+                    VStack(alignment: .leading, spacing: 8) {
+                        LabeledContent("Tone", value: String(format: "%.0f", camera.styleAdjustment.tone))
+                        Slider(value: toneBinding, in: -100...100)
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        LabeledContent("Color", value: String(format: "%.0f", camera.styleAdjustment.color))
+                        Slider(value: colorBinding, in: -100...100)
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        LabeledContent("Palette", value: String(format: "%.0f", camera.styleAdjustment.palette))
+                        Slider(value: paletteBinding, in: 0...100)
+                    }
+                    Button("Reset style controls") {
+                        camera.resetStyleAdjustment()
+                    }
+                } header: {
+                    Text("PHOTOGRAPHIC STYLE PACKAGE")
+                } footer: {
+                    Text("Adjust these values before taking a photo. The app writes the selected look into the saved HEIF image.")
                 }
 
                 Section {
@@ -26,8 +80,6 @@ struct SettingsView: View {
                     }
                 } header: {
                     Text("MENU")
-                } footer: {
-                    Text("Choose between a narrow icons-only menu or a labeled menu with current values.")
                 }
 
                 Section {
@@ -52,7 +104,22 @@ struct SettingsView: View {
                         .foregroundStyle(CamProTheme.accent)
                 }
             }
+            .onAppear {
+                camera.includeApplePhotoMetadata = settings.includeApplePhotoMetadata
+                camera.includeSemanticMattes = settings.includeSemanticMattes
+                camera.includeDepthData = settings.includeDepthData
+                camera.includePortraitMatte = settings.includePortraitMatte
+            }
+            .onChange(of: settings.includeApplePhotoMetadata) { camera.includeApplePhotoMetadata = $0 }
+            .onChange(of: settings.includeSemanticMattes) { camera.includeSemanticMattes = $0 }
+            .onChange(of: settings.includeDepthData) { camera.includeDepthData = $0 }
+            .onChange(of: settings.includePortraitMatte) { camera.includePortraitMatte = $0 }
         }
         .tint(CamProTheme.accent)
     }
 }
+
+// References:
+// Apple AVDepthData: https://developer.apple.com/documentation/avfoundation/avdepthdata
+// Apple AVSemanticSegmentationMatte: https://developer.apple.com/documentation/avfoundation/avsemanticsegmentationmatte
+// Apple portrait effects matte: https://developer.apple.com/documentation/avfoundation/avportraiteffectsmatte

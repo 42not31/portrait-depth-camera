@@ -87,6 +87,10 @@ final class CameraModel: NSObject, ObservableObject {
     @Published private(set) var styleAdjustment = PhotoStyleAdjustment()
     @Published private(set) var selectedPhotoStyle: PhotoStylePreset?
     @Published private(set) var cinematicLensEffect: CinematicLensEffect = .off
+    @Published var includeApplePhotoMetadata = true
+    @Published var includeSemanticMattes = true
+    @Published var includeDepthData = true
+    @Published var includePortraitMatte = true
 
     private let sessionQueue = DispatchQueue(label: "com.privateportrait.camera.session")
     private let photoOutput = AVCapturePhotoOutput()
@@ -173,7 +177,8 @@ final class CameraModel: NSObject, ObservableObject {
         let requestedFlashMode = photoFlashMode
         let requestedDepthAperture: CGFloat = portraitAperture
         let requestedStyle: PhotoStyleAdjustment = styleAdjustment
-        let requestedCinematicEffect = cinematicLensEffect
+        // Cinematic Lens is available only in Photos mode.
+        let requestedCinematicEffect = requestedMode == .photo ? cinematicLensEffect : .off
 
         sessionQueue.async { [weak self] in
             guard let self else { return }
@@ -228,6 +233,7 @@ final class CameraModel: NSObject, ObservableObject {
         }
 
         let useDepth = includePortraitData
+            && includeDepthData
             && photoOutput.isDepthDataDeliverySupported
             && photoOutput.isDepthDataDeliveryEnabled
         if useDepth {
@@ -236,11 +242,17 @@ final class CameraModel: NSObject, ObservableObject {
         }
 
         let usePortraitMatte = useDepth
+            && includePortraitMatte
             && photoOutput.isPortraitEffectsMatteDeliverySupported
             && photoOutput.isPortraitEffectsMatteDeliveryEnabled
         if usePortraitMatte {
             settings.isPortraitEffectsMatteDeliveryEnabled = true
             settings.embedsPortraitEffectsMatteInPhoto = true
+        }
+
+        // Include all semantic mattes supported by the current camera.
+        if includeSemanticMattes && useDepth && !photoOutput.enabledSemanticSegmentationMatteTypes.isEmpty {
+            settings.embedsSemanticSegmentationMattesInPhoto = true
         }
         return settings
     }
@@ -274,6 +286,9 @@ final class CameraModel: NSObject, ObservableObject {
 
                 DispatchQueue.main.async {
                     self.captureMode = mode
+                    if mode == .portrait {
+                        self.cinematicLensEffect = .off
+                    }
                     self.zoomFactor = self.softwareZoomFactor
                 }
             } catch {
@@ -589,6 +604,11 @@ final class CameraModel: NSObject, ObservableObject {
         if photoOutput.isDepthDataDeliveryEnabled,
            photoOutput.isPortraitEffectsMatteDeliverySupported {
             photoOutput.isPortraitEffectsMatteDeliveryEnabled = true
+        }
+
+        if !photoOutput.availableSemanticSegmentationMatteTypes.isEmpty {
+            photoOutput.enabledSemanticSegmentationMatteTypes =
+                photoOutput.availableSemanticSegmentationMatteTypes
         }
     }
 
@@ -975,7 +995,7 @@ final class CameraModel: NSObject, ObservableObject {
             width: styledImage.width,
             height: styledImage.height
         )
-        let outputMetadata = includePortraitData
+        let outputMetadata = includeApplePhotoMetadata
             ? portraitEnabledMetadata(from: croppedMetadata)
             : croppedMetadata
 
@@ -983,7 +1003,11 @@ final class CameraModel: NSObject, ObservableObject {
             styledImage,
             metadata: outputMetadata,
             depthAuxiliaryInfo: depthAuxiliaryInfo,
-            matteAuxiliaryInfo: matteAuxiliaryInfo
+            matteAuxiliaryInfo: matteAuxiliaryInfo,
+            semanticAuxiliaryInfo: semanticSegmentationAuxiliaryInfo(
+                for: photo,
+                normalizedRect: normalizedCrop
+            )
         ) else {
             // Never discard a genuine Portrait capture merely because a
             // derivative software crop could not be packaged on this OS.
@@ -1070,15 +1094,21 @@ final class CameraModel: NSObject, ObservableObject {
             }
         }
 
-        let outputMetadata = portraitEnabledMetadata(
-            from: croppedMetadata(from: photo.metadata, width: styledPortraitImage.width, height: styledPortraitImage.height)
-        )
+        let outputMetadata = includeApplePhotoMetadata
+            ? portraitEnabledMetadata(
+                from: croppedMetadata(from: photo.metadata, width: styledPortraitImage.width, height: styledPortraitImage.height)
+            )
+            : croppedMetadata(from: photo.metadata, width: styledPortraitImage.width, height: styledPortraitImage.height)
 
         guard let croppedData = packageImage(
             styledPortraitImage,
             metadata: outputMetadata,
             depthAuxiliaryInfo: depthAuxiliaryInfo,
-            matteAuxiliaryInfo: matteAuxiliaryInfo
+            matteAuxiliaryInfo: matteAuxiliaryInfo,
+            semanticAuxiliaryInfo: semanticSegmentationAuxiliaryInfo(
+                for: photo,
+                normalizedRect: normalizedCrop
+            )
         ) else {
             // Never lose a genuine Portrait capture over a packaging
             // failure — fall back to the native, uncropped file.
@@ -1119,7 +1149,9 @@ final class CameraModel: NSObject, ObservableObject {
         if originalMakerApple?["25"] != nil, aperture >= 15.95 {
             return photo.fileDataRepresentation()
         }
-        let metadata = portraitEnabledMetadata(from: originalMetadata)
+        let metadata = includeApplePhotoMetadata
+            ? portraitEnabledMetadata(from: originalMetadata)
+            : originalMetadata
 
         var depthAuxiliaryInfo: (CFString, CFDictionary)?
         if let depth = photo.depthData {
@@ -1152,7 +1184,8 @@ final class CameraModel: NSObject, ObservableObject {
             outputImage,
             metadata: metadata,
             depthAuxiliaryInfo: depthAuxiliaryInfo,
-            matteAuxiliaryInfo: matteAuxiliaryInfo
+            matteAuxiliaryInfo: matteAuxiliaryInfo,
+            semanticAuxiliaryInfo: semanticSegmentationAuxiliaryInfo(for: photo)
         )
     }
 
@@ -1296,11 +1329,40 @@ final class CameraModel: NSObject, ObservableObject {
         return result
     }
 
+    private func semanticSegmentationAuxiliaryInfo(
+        for photo: AVCapturePhoto,
+        normalizedRect: CGRect? = nil
+    ) -> [(CFString, CFDictionary)] {
+        guard includeSemanticMattes else { return [] }
+        return photoOutput.enabledSemanticSegmentationMatteTypes.compactMap { matteType in
+            guard let matte = photo.semanticSegmentationMatte(for: matteType),
+                  var auxiliaryType: NSString?,
+                  let originalInfo = matte.dictionaryRepresentation(forAuxiliaryDataType: &auxiliaryType),
+                  let auxiliaryType else { return nil }
+
+            if let normalizedRect,
+               let cropped = croppedAuxiliaryInfo(
+                    from: originalInfo,
+                    auxiliaryType: auxiliaryType,
+                    map: matte.mattingImage,
+                    normalizedRect: normalizedRect
+               ) {
+                return cropped
+            }
+            return auxiliaryInfo(
+                from: originalInfo,
+                auxiliaryType: auxiliaryType,
+                map: matte.mattingImage
+            )
+        }
+    }
+
     private func packageImage(
         _ image: CGImage,
         metadata: [String: Any],
         depthAuxiliaryInfo: (CFString, CFDictionary)?,
-        matteAuxiliaryInfo: (CFString, CFDictionary)?
+        matteAuxiliaryInfo: (CFString, CFDictionary)?,
+        semanticAuxiliaryInfo: [(CFString, CFDictionary)] = []
     ) -> Data? {
         let data = NSMutableData()
         let imageType: CFString = UTType.heic.identifier as CFString
@@ -1323,6 +1385,14 @@ final class CameraModel: NSObject, ObservableObject {
                 destination,
                 matteAuxiliaryInfo.0,
                 matteAuxiliaryInfo.1
+            )
+        }
+
+        for semanticInfo in semanticAuxiliaryInfo {
+            CGImageDestinationAddAuxiliaryDataInfo(
+                destination,
+                semanticInfo.0,
+                semanticInfo.1
             )
         }
 
