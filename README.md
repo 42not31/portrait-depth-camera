@@ -27,3 +27,9 @@ The app requests camera access and add-only Photos access. It does not request r
 The camera now includes named, adjustable style presets inspired by newer-generation iPhone looks: Natural Bright, Warm Skin, Rich Color, Golden, Dramatic, Cool Contrast, and Monochrome. Each preset can be fine-tuned with the existing tone, colour, and palette controls before capture.
 
 These are app-created styles, not Apple’s private native Photographic Styles metadata. They are applied to the saved image by the app while the original camera/depth representation remains the fallback when the adjustment is neutral. The app does not claim the photo was captured by an iPhone 16 or iPhone 17.
+
+The Tone / Colour pad supports free movement in every direction. The palette slider uses a full colour gradient, and the style row supports both direct selection and vertical swipes to move through presets.
+
+## Cinematic Lens
+
+Cinematic Lens is a separate camera menu item with Classic, Portrait, Anamorphic, and Dream presets. These presets change the depth-based blur recipe used for the captured image; they are not colour filters. They need depth data from the camera, so the app saves a clean photo if depth data is unavailable.

@@ -74,6 +74,8 @@ struct ContentView: View {
         if isFocusSupported {
             items.append(.focus)
         }
+        // Cinematic Lens is intentionally its own item, alongside rather than
+        // inside the Photographic Styles control.
         items += [.lens, .aspectRatio, .flash, .exposure, .style, .cinematic, .settings]
         return items
     }
@@ -601,30 +603,15 @@ struct ContentView: View {
     }
 
     private var styleControlDetail: some View {
-        CameraControlDetail(title: "Style", onClose: { closeActiveControl() }) {
+        CameraControlDetail(title: "Photographic Styles", width: 300, onClose: { closeActiveControl() }) {
             Text("STYLE PRESETS")
                 .font(.system(size: 9, weight: .bold, design: .rounded))
                 .foregroundStyle(Color.primary.opacity(0.62))
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(CameraModel.PhotoStylePreset.allCases) { preset in
-                        Button {
-                            camera.applyStylePreset(preset)
-                        } label: {
-                            Text(preset.rawValue)
-                                .font(.system(size: 10, weight: .semibold, design: .rounded))
-                                .lineLimit(1)
-                                .padding(.horizontal, 9)
-                                .frame(height: 28)
-                                .foregroundStyle(Color.primary)
-                                .background(Color.white.opacity(0.08), in: Capsule())
-                                .overlay(Capsule().stroke(Color.white.opacity(0.16), lineWidth: 0.6))
-                        }
-                        .buttonStyle(CameraPressStyle())
-                    }
-                }
-            }
+            PhotoStylePresetPicker(
+                selectedStyle: camera.selectedPhotoStyle,
+                select: { camera.applyStylePreset($0) }
+            )
 
             HStack {
                 Text("TONE")
@@ -657,7 +644,7 @@ struct ContentView: View {
                     set: { camera.setStyleAdjustment(color: $0) }
                 )
             )
-            .frame(height: 108)
+            .frame(height: 132)
             .frame(maxWidth: .infinity)
 
             VStack(alignment: .leading, spacing: 4) {
@@ -669,32 +656,36 @@ struct ContentView: View {
                 }
                 .font(.system(size: 9, weight: .bold, design: .rounded))
                 .foregroundStyle(Color.primary.opacity(0.62))
-                Slider(
+                PaletteSlider(
                     value: Binding(
                         get: { camera.styleAdjustment.palette },
                         set: { camera.setStyleAdjustment(palette: $0) }
-                    ),
-                    in: 0...100
+                    )
                 )
-                .tint(Color.primary)
             }
         }
     }
 
     private var cinematicControlDetail: some View {
-        CameraControlDetail(title: "Cinematic Lens", onClose: { closeActiveControl() }) {
-            Text("APPLIED TO THE CAPTURED PHOTO")
+        CameraControlDetail(title: "Cinematic Lens", width: 300, onClose: { closeActiveControl() }) {
+            Text("DEPTH-BASED BLUR PRESETS")
                 .font(.system(size: 9, weight: .bold, design: .rounded))
                 .foregroundStyle(Color.primary.opacity(0.62))
-            HStack(spacing: 6) {
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
                 ForEach(CinematicLensEffect.allCases) { effect in
-                    choiceButton(effect.rawValue, isSelected: camera.cinematicLensEffect == effect) {
+                        CinematicLensPresetButton(
+                            effect: effect,
+                            isSelected: camera.cinematicLensEffect == effect
+                        ) {
                         camera.setCinematicLensEffect(effect)
-                        activeMenuItem = nil
                     }
                 }
+                }
             }
-            Text("Uses a restrained grade, bloom, and vignette for a natural movie-like finish. Portrait depth data is preserved when available.")
+
+            Text(camera.cinematicLensEffect.detail + ". Uses the camera’s depth map, not a colour filter.")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(Color.primary.opacity(0.62))
         }
@@ -957,7 +948,7 @@ private enum CameraMenuItem: String, CaseIterable, Identifiable, Hashable {
         case .aspectRatio: return "Aspect Ratio"
         case .flash: return "Flash"
         case .exposure: return "Exposure"
-        case .style: return "Style"
+        case .style: return "Photographic Styles"
         case .cinematic: return "Cinematic Lens"
         case .settings: return "Settings"
         }
@@ -1033,25 +1024,46 @@ private struct StyleGridPad: View {
     var body: some View {
         GeometryReader { proxy in
             let size = proxy.size
-            let dotSpacing: CGFloat = 16
+            let dotSpacing: CGFloat = 15
             let columns = max(Int(size.width / dotSpacing), 1)
             let rows = max(Int(size.height / dotSpacing), 1)
+            let handleInset: CGFloat = 14
+            let handleX = handleInset + (size.width - (handleInset * 2)) * CGFloat((color + 100) / 200)
+            let handleY = handleInset + (size.height - (handleInset * 2)) * CGFloat(1 - (tone + 100) / 200)
 
             ZStack {
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .fill(
                         LinearGradient(
-                            colors: [Color.blue.opacity(0.22), Color.black.opacity(0.04), Color.orange.opacity(0.22)],
+                            colors: [
+                                Color(red: 0.18, green: 0.43, blue: 0.98).opacity(0.42),
+                                Color(red: 0.54, green: 0.30, blue: 0.94).opacity(0.22),
+                                Color(red: 1.0, green: 0.43, blue: 0.20).opacity(0.40)
+                            ],
                             startPoint: .leading,
                             endPoint: .trailing
                         )
                     )
+                    .overlay {
+                        RadialGradient(
+                            colors: [Color.white.opacity(0.26), .clear],
+                            center: .top,
+                            startRadius: 0,
+                            endRadius: size.width * 0.72
+                        )
+                        .blendMode(.screen)
+                    }
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .stroke(Color.white.opacity(0.26), lineWidth: 0.8)
+                    }
 
                 ForEach(0..<rows, id: \.self) { row in
                     ForEach(0..<columns, id: \.self) { col in
                         Circle()
-                            .fill(Color.primary.opacity(0.16))
-                            .frame(width: 2.4, height: 2.4)
+                            .fill(Color.white.opacity(0.38))
+                            .frame(width: 2, height: 2)
+                            .shadow(color: Color.white.opacity(0.58), radius: 3)
                             .position(
                                 x: CGFloat(col) * dotSpacing + dotSpacing / 2,
                                 y: CGFloat(row) * dotSpacing + dotSpacing / 2
@@ -1059,14 +1071,27 @@ private struct StyleGridPad: View {
                     }
                 }
 
-                Circle()
-                    .fill(.white)
-                    .overlay(Circle().stroke(Color.black.opacity(0.15), lineWidth: 1))
-                    .frame(width: 22, height: 22)
-                    .shadow(radius: 3)
+                ZStack {
+                    Circle()
+                        .fill(.ultraThinMaterial)
+                    Circle()
+                        .stroke(
+                            AngularGradient(
+                                colors: [.cyan, .blue, .purple, .pink, .orange, .cyan],
+                                center: .center
+                            ),
+                            lineWidth: 3
+                        )
+                    Circle()
+                        .fill(Color.white.opacity(0.95))
+                        .frame(width: 8, height: 8)
+                }
+                .frame(width: 27, height: 27)
+                .shadow(color: Color.black.opacity(0.30), radius: 5, y: 2)
+                .shadow(color: .white.opacity(0.42), radius: 6)
                     .position(
-                        x: size.width * CGFloat((color + 100) / 200),
-                        y: size.height * CGFloat(1 - (tone + 100) / 200)
+                        x: handleX,
+                        y: handleY
                     )
             }
             .contentShape(Rectangle())
@@ -1083,8 +1108,153 @@ private struct StyleGridPad: View {
     }
 }
 
+private struct PhotoStylePresetPicker: View {
+    let selectedStyle: CameraModel.PhotoStylePreset?
+    let select: (CameraModel.PhotoStylePreset) -> Void
+
+    private var presets: [CameraModel.PhotoStylePreset] {
+        CameraModel.PhotoStylePreset.allCases
+    }
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 7) {
+                ForEach(presets) { preset in
+                    let isSelected = selectedStyle == preset
+                    Button {
+                        // A direct tap always chooses this exact style.
+                        select(preset)
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(preset.rawValue)
+                            if isSelected {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 10, weight: .bold))
+                            }
+                        }
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .lineLimit(1)
+                        .padding(.horizontal, 10)
+                        .frame(height: 30)
+                        .foregroundStyle(isSelected ? Color.white : Color.primary)
+                        .background(
+                            isSelected ? CamProTheme.accent.opacity(0.78) : Color.white.opacity(0.09),
+                            in: Capsule()
+                        )
+                        .overlay(Capsule().stroke(Color.white.opacity(isSelected ? 0.42 : 0.18), lineWidth: 0.7))
+                    }
+                    .buttonStyle(CameraPressStyle())
+                    .accessibilityAddTraits(isSelected ? .isSelected : [])
+                }
+            }
+            .padding(.vertical, 2)
+        }
+        // Keep horizontal scrolling for the row, while an intentional vertical
+        // swipe cycles presets. The simultaneous gesture leaves button taps
+        // intact.
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 18)
+                .onEnded { value in
+                    guard abs(value.translation.height) > abs(value.translation.width),
+                          abs(value.translation.height) > 18
+                    else { return }
+                    moveSelection(for: value.translation.height < 0 ? 1 : -1)
+                }
+        )
+        .accessibilityHint("Tap a style to select it, or swipe up and down to browse.")
+    }
+
+    private func moveSelection(for offset: Int) {
+        let currentIndex = selectedStyle.flatMap { presets.firstIndex(of: $0) } ?? 0
+        let nextIndex = (currentIndex + offset + presets.count) % presets.count
+        select(presets[nextIndex])
+    }
+}
+
+private struct CinematicLensPresetButton: View {
+    let effect: CinematicLensEffect
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 5) {
+                Image(systemName: effect == .off ? "circle" : "circle.hexagongrid.fill")
+                    .font(.system(size: 16, weight: .medium))
+                Text(effect.rawValue)
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(isSelected ? Color.white : Color.primary)
+            .frame(width: 62, height: 58)
+            .background(
+                isSelected ? CamProTheme.accent.opacity(0.74) : Color.white.opacity(0.08),
+                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.white.opacity(isSelected ? 0.44 : 0.16), lineWidth: 0.7)
+            }
+        }
+        .buttonStyle(CameraPressStyle())
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+private struct PaletteSlider: View {
+    @Binding var value: Double
+
+    var body: some View {
+        GeometryReader { proxy in
+            let handleSize: CGFloat = 18
+            let travel = max(proxy.size.width - handleSize, 1)
+            let x = handleSize / 2 + travel * CGFloat(value / 100)
+
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(
+                        LinearGradient(
+                            colors: [.indigo, .blue, .cyan, .green, .yellow, .orange, .pink],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .frame(height: 8)
+                    .overlay(Capsule().stroke(Color.white.opacity(0.34), lineWidth: 0.7))
+                    .shadow(color: .white.opacity(0.34), radius: 4)
+
+                Circle()
+                    .fill(.white)
+                    .frame(width: handleSize, height: handleSize)
+                    .overlay(Circle().stroke(Color.black.opacity(0.16), lineWidth: 0.8))
+                    .shadow(color: .black.opacity(0.24), radius: 3, y: 1)
+                    .offset(x: x - handleSize / 2)
+            }
+            .frame(height: proxy.size.height)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { gesture in
+                        value = min(max(Double((gesture.location.x - handleSize / 2) / travel) * 100, 0), 100)
+                    }
+            )
+        }
+        .frame(height: 26)
+        .accessibilityLabel("Palette intensity")
+        .accessibilityValue("\(Int(value)) percent")
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: value = min(value + 5, 100)
+            case .decrement: value = max(value - 5, 0)
+            @unknown default: break
+            }
+        }
+    }
+}
+
 private struct CameraControlDetail<Content: View>: View {
     let title: String
+    var width: CGFloat = 240
     let onClose: () -> Void
     @ViewBuilder let content: () -> Content
 
@@ -1107,7 +1277,7 @@ private struct CameraControlDetail<Content: View>: View {
             content()
         }
         .padding(10)
-        .frame(width: 240)
+        .frame(width: width)
         .background(Color.black.opacity(0.12), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .camProGlass(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .shadow(color: .black.opacity(0.24), radius: 18, y: 8)

@@ -8,10 +8,43 @@ import UniformTypeIdentifiers
 
 enum CinematicLensEffect: String, CaseIterable, Identifiable {
     case off = "Off"
-    case cinematic = "Cinematic"
+    case classic = "Classic"
+    case portrait = "Portrait"
     case anamorphic = "Anamorphic"
+    case dream = "Dream"
 
     var id: String { rawValue }
+
+    // These are deliberately depth recipes, rather than colour looks. Each
+    // option changes how strongly the captured depth map separates foreground
+    // from background in CIDepthOfField.
+    var depthBlurRadius: Float {
+        switch self {
+        case .off: return 0
+        case .classic: return 9
+        case .portrait: return 13
+        case .anamorphic: return 18
+        case .dream: return 22
+        }
+    }
+
+    var focusHeight: CGFloat {
+        switch self {
+        case .off, .classic: return 0.50
+        case .portrait, .anamorphic: return 0.56
+        case .dream: return 0.48
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .off: return "No added depth blur"
+        case .classic: return "Natural background separation"
+        case .portrait: return "Focused subject with a soft falloff"
+        case .anamorphic: return "Wide, pronounced depth falloff"
+        case .dream: return "The strongest soft-focus background"
+        }
+    }
 }
 
 struct PhotoStyleAdjustment: Equatable {
@@ -52,6 +85,7 @@ final class CameraModel: NSObject, ObservableObject {
     @Published var statusMessage: String?
     @Published private(set) var portraitAperture: CGFloat = 2.8
     @Published private(set) var styleAdjustment = PhotoStyleAdjustment()
+    @Published private(set) var selectedPhotoStyle: PhotoStylePreset?
     @Published private(set) var cinematicLensEffect: CinematicLensEffect = .off
 
     private let sessionQueue = DispatchQueue(label: "com.privateportrait.camera.session")
@@ -388,11 +422,17 @@ final class CameraModel: NSObject, ObservableObject {
         if let tone { updated.tone = min(max(tone, -100), 100) }
         if let color { updated.color = min(max(color, -100), 100) }
         if let palette { updated.palette = min(max(palette, 0), 100) }
-        DispatchQueue.main.async { [weak self] in self?.styleAdjustment = updated }
+        DispatchQueue.main.async { [weak self] in
+            self?.styleAdjustment = updated
+            self?.selectedPhotoStyle = nil
+        }
     }
 
     func resetStyleAdjustment() {
-        DispatchQueue.main.async { [weak self] in self?.styleAdjustment = .neutral }
+        DispatchQueue.main.async { [weak self] in
+            self?.styleAdjustment = .neutral
+            self?.selectedPhotoStyle = nil
+        }
     }
 
     enum PhotoStylePreset: String, CaseIterable, Identifiable {
@@ -430,6 +470,7 @@ final class CameraModel: NSObject, ObservableObject {
     func applyStylePreset(_ preset: PhotoStylePreset) {
         DispatchQueue.main.async { [weak self] in
             self?.styleAdjustment = preset.adjustment
+            self?.selectedPhotoStyle = preset
         }
     }
 
@@ -765,14 +806,13 @@ final class CameraModel: NSObject, ObservableObject {
         filter.setValue(inputImage, forKey: kCIInputImageKey)
         filter.setValue(disparityImage, forKey: "inputDisparityImage")
         filter.setValue(
-            CIVector(x: inputImage.extent.midX, y: inputImage.extent.midY),
+            CIVector(
+                x: inputImage.extent.midX,
+                y: inputImage.extent.height * effect.focusHeight
+            ),
             forKey: "inputPoint0"
         )
-        // Anamorphic uses a slightly larger, more pronounced optical falloff.
-        filter.setValue(
-            NSNumber(value: Float(effect == .anamorphic ? 16.0 : 11.0)),
-            forKey: "inputRadius"
-        )
+        filter.setValue(NSNumber(value: effect.depthBlurRadius), forKey: "inputRadius")
 
         guard let output = filter.outputImage else { return image }
         return ciContext.createCGImage(output, from: inputImage.extent) ?? image
@@ -861,14 +901,19 @@ final class CameraModel: NSObject, ObservableObject {
         }
 
         let processedImage: CGImage
-        if includePortraitData {
-            processedImage = depthEffectImage(from: primaryImage, photo: photo, aperture: aperture) ?? primaryImage
-        } else {
+        if activeCinematicLensEffect != .off {
+            // Cinematic Lens takes priority in either capture mode. It uses the
+            // same delivered depth map and leaves the image untouched when the
+            // hardware could not provide depth for this photo.
             processedImage = cinematicDepthEffectImage(
                 from: primaryImage,
                 photo: photo,
                 effect: activeCinematicLensEffect
             )
+        } else if includePortraitData {
+            processedImage = depthEffectImage(from: primaryImage, photo: photo, aperture: aperture) ?? primaryImage
+        } else {
+            processedImage = primaryImage
         }
 
         let zoomScale = max(1.0 / factor, 0.05)
